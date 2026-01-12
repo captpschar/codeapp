@@ -26,6 +26,9 @@ class TriageWidget(QWidget):
         self._image_editor = ImageEditor()
         self._file_manager = ImageFileManager(app_state.get_output_dir())
         self._current_image_path: str = ""
+        # Track adjustment values to apply together
+        self._brightness_factor: float = 1.0
+        self._contrast_factor: float = 1.0
         self._setup_ui()
         self._connect_signals()
 
@@ -133,17 +136,27 @@ class TriageWidget(QWidget):
 
     def _on_brightness(self, factor: float) -> None:
         """Adjust brightness."""
-        self._image_editor.reset()
-        self._image_editor.adjust_brightness(factor)
-        self._update_preview()
+        self._brightness_factor = factor
+        self._apply_adjustments()
 
     def _on_contrast(self, factor: float) -> None:
         """Adjust contrast."""
-        self._image_editor.adjust_contrast(factor)
+        self._contrast_factor = factor
+        self._apply_adjustments()
+
+    def _apply_adjustments(self) -> None:
+        """Apply both brightness and contrast from original."""
+        self._image_editor.reset()
+        if self._brightness_factor != 1.0:
+            self._image_editor.adjust_brightness(self._brightness_factor)
+        if self._contrast_factor != 1.0:
+            self._image_editor.adjust_contrast(self._contrast_factor)
         self._update_preview()
 
     def _on_reset(self) -> None:
         """Reset image edits."""
+        self._brightness_factor = 1.0
+        self._contrast_factor = 1.0
         self._image_editor.reset()
         self._update_preview()
 

@@ -10,7 +10,9 @@ from google.auth.transport.requests import Request
 
 SCOPES = [
     'https://www.googleapis.com/auth/documents',
-    'https://www.googleapis.com/auth/drive.file'
+    'https://www.googleapis.com/auth/drive.file',
+    # Required for setting public sharing permissions on uploaded images
+    'https://www.googleapis.com/auth/drive'
 ]
 
 

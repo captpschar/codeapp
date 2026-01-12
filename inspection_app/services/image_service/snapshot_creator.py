@@ -51,9 +51,11 @@ class SnapshotCreator:
         return output_path
 
     def _generate_snapshot_name(self, base_filename: str) -> str:
-        """Generate snapshot filename. Format: {original}_code_snap.png"""
+        """Generate unique snapshot filename with timestamp."""
+        from datetime import datetime
         stem = Path(base_filename).stem
-        return f"{stem}_code_snap.png"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        return f"{stem}_code_snap_{timestamp}.png"
 
     def create_from_pil_image(
         self,

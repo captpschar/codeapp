@@ -26,12 +26,20 @@ class PDFPageRenderer:
             return None
 
         dpi = dpi or self._default_dpi
+        import fitz
+
+        # Create matrix with proper rotation handling
         zoom = dpi / 72.0
-        matrix = page.get_pixmap(matrix=page.derotation_matrix * page.transformation_matrix)
-        matrix = page.get_pixmap(dpi=dpi)
+        mat = fitz.Matrix(zoom, zoom)
+
+        # Apply derotation if page is rotated
+        if page.rotation != 0:
+            mat = page.derotation_matrix * mat
+
+        pixmap = page.get_pixmap(matrix=mat)
 
         # Convert to PIL Image
-        img_data = matrix.tobytes("ppm")
+        img_data = pixmap.tobytes("ppm")
         return Image.open(io.BytesIO(img_data))
 
     def render_page_region(

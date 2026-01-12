@@ -34,11 +34,19 @@ class ChapterSelector(QWidget):
         """Set available chapters."""
         self._chapters = chapters
         self._combo.clear()
+        # Add placeholder as first item
+        self._combo.addItem("-- Select a chapter --")
         self._combo.addItems(chapters)
+        # Set to placeholder (index 0) which won't be valid
+        self._combo.setCurrentIndex(0)
 
     def get_selected(self) -> str:
-        """Get currently selected chapter."""
-        return self._combo.currentText()
+        """Get currently selected chapter (empty if placeholder selected)."""
+        text = self._combo.currentText()
+        # Return empty string if placeholder is selected
+        if text == "-- Select a chapter --" or self._combo.currentIndex() == 0:
+            return ""
+        return text
 
     def set_selected(self, chapter: str) -> None:
         """Set selected chapter."""
@@ -48,7 +56,8 @@ class ChapterSelector(QWidget):
 
     def _on_selection_changed(self, text: str) -> None:
         """Handle selection change."""
-        if text:
+        # Don't emit for placeholder selection
+        if text and text != "-- Select a chapter --":
             self.chapter_changed.emit(text)
 
     def set_enabled(self, enabled: bool) -> None:

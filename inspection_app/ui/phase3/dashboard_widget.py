@@ -147,12 +147,16 @@ class DashboardWidget(QWidget):
         if not self._current_item:
             return
 
+        from datetime import datetime
+
         # Move snapshot to proper location
         output_dir = self._app_state.get_output_dir() / "snapshots"
         output_dir.mkdir(parents=True, exist_ok=True)
 
+        # Generate unique filename with timestamp
         original_name = Path(self._current_item.photo_original_path).stem
-        snapshot_name = f"{original_name}_code_snap.png"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        snapshot_name = f"{original_name}_code_snap_{timestamp}.png"
         final_path = output_dir / snapshot_name
 
         shutil.copy(temp_path, final_path)
