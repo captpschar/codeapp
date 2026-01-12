@@ -1,0 +1,22 @@
+{
+  "gemini_api_key": "YOUR_API_KEY_HERE",
+  "google_docs_credentials_path": "./credentials.json",
+  "code_book_directory": "./code_books/",
+  "output_directory": "./output/",
+  "ai_settings": {
+    "model_name": "gemini-3-flash-preview",
+    "thinking_level": "high",
+    "max_retries": 3,
+    "retry_delay_seconds": 5,
+    "cache_ttl_minutes": 60
+  },
+  "pdf_settings": {
+    "render_dpi": 150,
+    "snapshot_dpi": 300
+  },
+  "ui_settings": {
+    "default_window_width": 1400,
+    "default_window_height": 900,
+    "auto_save_interval_seconds": 30
+  }
+}
