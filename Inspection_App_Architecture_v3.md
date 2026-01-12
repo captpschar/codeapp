@@ -91,9 +91,9 @@ pydantic==2.5.3
 
 | Setting | Value | Notes |
 |---------|-------|-------|
-| Model | `gemini-2.0-pro` | Use Gemini 2.0 Pro (latest stable) |
+| Model | `gemini-3-flash-preview` | Gemini 3 Flash Preview (latest) |
 | SDK | `google-genai` | Official Google GenAI SDK |
-| Thinking | `thinking_config={"thinking_budget": 10000}` | Extended reasoning for code analysis |
+| Thinking | `thinking_level="high"` | High reasoning depth for code analysis (replaces thinking_budget) |
 | Context Caching | Enabled | Cache PDF chapters to reduce API calls |
 
 ### 2.3 System Requirements
@@ -366,8 +366,8 @@ class InspectionItem:
   "code_book_directory": "./code_books/",
   "output_directory": "./output/",
   "ai_settings": {
-    "model_name": "gemini-2.0-pro",
-    "thinking_budget": 10000,
+    "model_name": "gemini-3-flash-preview",
+    "thinking_level": "high",
     "max_retries": 3,
     "retry_delay_seconds": 5,
     "cache_ttl_minutes": 60
@@ -2318,8 +2318,8 @@ from pydantic import BaseModel, validator
 
 class AISettings(BaseModel):
     """AI service configuration."""
-    model_name: str = "gemini-2.0-pro"
-    thinking_budget: int = 10000
+    model_name: str = "gemini-3-flash-preview"
+    thinking_level: str = "high"  # Options: minimal, low, medium, high
     max_retries: int = 3
     retry_delay_seconds: int = 5
     cache_ttl_minutes: int = 60
