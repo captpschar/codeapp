@@ -2,15 +2,21 @@
 Main entry point for the Inspection App (NiceGUI version).
 """
 
-from nicegui import ui, app
+import sys
 from pathlib import Path
 
-from .web_ui.app import get_app_state
-from .web_ui.pages.triage_page import TriagePage
-from .web_ui.pages.processing_page import ProcessingPage
-from .web_ui.pages.review_page import ReviewPage
-from .web_ui.pages.export_page import ExportPage
-from .web_ui.pages.settings_page import SettingsPage
+# Add the parent directory to path for imports when run directly
+if __name__ == '__main__':
+    sys.path.insert(0, str(Path(__file__).parent))
+
+from nicegui import ui, app
+
+from web_ui.app import get_app_state
+from web_ui.pages.triage_page import TriagePage
+from web_ui.pages.processing_page import ProcessingPage
+from web_ui.pages.review_page import ReviewPage
+from web_ui.pages.export_page import ExportPage
+from web_ui.pages.settings_page import SettingsPage
 
 
 def create_app():
@@ -93,7 +99,7 @@ def create_app():
 
                 with ui.row().classes('w-full gap-8'):
                     # Pending count
-                    from .core.inspection_item import ItemStatus
+                    from core.inspection_item import ItemStatus
                     pending = len([i for i in app_state.queue.get_all_items()
                                   if i.status == ItemStatus.PENDING])
                     with ui.column().classes('items-center'):

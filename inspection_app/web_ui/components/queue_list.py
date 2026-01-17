@@ -4,7 +4,7 @@ Queue list component for displaying inspection items.
 
 from nicegui import ui
 from typing import Optional, Callable, List
-from ...core.inspection_item import InspectionItem, ItemStatus
+from core.inspection_item import InspectionItem, ItemStatus
 
 
 class QueueList:

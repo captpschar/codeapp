@@ -11,8 +11,8 @@ import fitz
 import shutil
 from datetime import datetime
 
-from ..app import get_app_state, notify_success, notify_error, notify_warning
-from ...core.inspection_item import InspectionItem, ItemStatus, SearchStatus
+from web_ui.app import get_app_state, notify_success, notify_error, notify_warning, notify_info
+from core.inspection_item import InspectionItem, ItemStatus, SearchStatus
 
 
 class ReviewPage:

@@ -13,8 +13,8 @@ if exist venv\Scripts\activate.bat (
     exit /b 1
 )
 
-REM Run the application as a module
-python -m inspection_app.main
+REM Run the application directly
+python main.py
 
 REM Keep window open if there was an error
 if errorlevel 1 (

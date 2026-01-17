@@ -5,7 +5,7 @@ Settings page for configuring the application.
 from nicegui import ui, events
 from pathlib import Path
 from typing import Optional
-from ..app import get_app_state, notify_success, notify_error
+from web_ui.app import get_app_state, notify_success, notify_error
 
 
 class SettingsPage:

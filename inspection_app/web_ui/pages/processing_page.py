@@ -6,8 +6,8 @@ from nicegui import ui
 from typing import Optional, List
 import asyncio
 
-from ..app import get_app_state, notify_success, notify_error, notify_info
-from ...core.inspection_item import InspectionItem, ItemStatus
+from web_ui.app import get_app_state, notify_success, notify_error, notify_info
+from core.inspection_item import InspectionItem, ItemStatus
 
 
 class ProcessingPage:
@@ -175,9 +175,9 @@ class ProcessingPage:
                 return
 
             # Import and use AI service
-            from ...services.ai_service.gemini_client import GeminiClient
-            from ...services.ai_service.prompt_templates import PromptTemplates
-            from ...services.ai_service.response_parser import ResponseParser
+            from services.ai_service.gemini_client import GeminiClient
+            from services.ai_service.prompt_templates import PromptTemplates
+            from services.ai_service.response_parser import ResponseParser
 
             client = GeminiClient(
                 api_key=self._app_state.config.gemini_api_key,

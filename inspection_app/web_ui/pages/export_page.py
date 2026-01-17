@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Optional, List
 import asyncio
 
-from ..app import get_app_state, notify_success, notify_error, notify_warning, notify_info
-from ...core.inspection_item import InspectionItem, ItemStatus
+from web_ui.app import get_app_state, notify_success, notify_error, notify_warning, notify_info
+from core.inspection_item import InspectionItem, ItemStatus
 
 
 class ExportPage:
@@ -206,9 +206,9 @@ class ExportPage:
 
         try:
             # Import services
-            from ...services.google_docs_service.auth_manager import GoogleAuthManager
-            from ...services.google_docs_service.doc_generator import GoogleDocGenerator
-            from ...services.google_docs_service.image_uploader import ImageUploader
+            from services.google_docs_service.auth_manager import GoogleAuthManager
+            from services.google_docs_service.doc_generator import GoogleDocGenerator
+            from services.google_docs_service.image_uploader import ImageUploader
 
             # Authenticate
             self._status_label.text = 'Authenticating with Google...'

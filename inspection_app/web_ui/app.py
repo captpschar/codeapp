@@ -6,7 +6,7 @@ from nicegui import ui, app
 from pathlib import Path
 import base64
 
-from ..core.app_state import AppState
+from core.app_state import AppState
 
 
 # Global app state instance

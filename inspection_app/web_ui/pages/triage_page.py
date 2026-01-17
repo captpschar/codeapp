@@ -9,8 +9,8 @@ import base64
 import io
 from PIL import Image, ImageEnhance
 
-from ..app import get_app_state, notify_success, notify_error, notify_warning
-from ...core.inspection_item import InspectionItem, ItemStatus
+from web_ui.app import get_app_state, notify_success, notify_error, notify_warning
+from core.inspection_item import InspectionItem, ItemStatus
 
 
 class TriagePage:
