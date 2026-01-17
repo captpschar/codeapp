@@ -1,5 +1,8 @@
 @echo off
 echo Starting Inspection App...
+echo.
+echo The application will open in your web browser at http://127.0.0.1:8080
+echo.
 
 REM Activate virtual environment
 if exist venv\Scripts\activate.bat (
@@ -10,8 +13,8 @@ if exist venv\Scripts\activate.bat (
     exit /b 1
 )
 
-REM Run the application
-python main.py
+REM Run the application as a module
+python -m inspection_app.main
 
 REM Keep window open if there was an error
 if errorlevel 1 (

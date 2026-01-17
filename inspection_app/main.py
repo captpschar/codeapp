@@ -1,83 +1,231 @@
 """
-Application entry point.
+Main entry point for the Inspection App (NiceGUI version).
 """
 
-import sys
+from nicegui import ui, app
 from pathlib import Path
-from PyQt6.QtWidgets import QApplication, QMessageBox
-from PyQt6.QtCore import Qt
 
-from core.app_state import AppState
-from core.config_manager import ConfigManager
-from ui.main_window import MainWindow
+from .web_ui.app import get_app_state
+from .web_ui.pages.triage_page import TriagePage
+from .web_ui.pages.processing_page import ProcessingPage
+from .web_ui.pages.review_page import ReviewPage
+from .web_ui.pages.export_page import ExportPage
+from .web_ui.pages.settings_page import SettingsPage
 
 
-def main():
-    """Main entry point."""
-    # Enable high DPI scaling
-    QApplication.setHighDpiScaleFactorRoundingPolicy(
-        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+def create_app():
+    """Create and configure the NiceGUI application."""
+
+    @ui.page('/')
+    def index():
+        """Main application page."""
+        app_state = get_app_state()
+
+        # Header
+        with ui.header().classes('bg-blue-800 text-white items-center'):
+            ui.label('Inspection Photo Review').classes('text-xl font-bold')
+            ui.space()
+
+            # Queue count badge
+            queue_count = len(app_state.queue.get_all_items())
+            ui.badge(f'{queue_count} items').classes('bg-blue-600')
+
+        # Navigation drawer
+        with ui.left_drawer().classes('bg-gray-100') as drawer:
+            ui.label('Navigation').classes('text-lg font-bold mb-4')
+
+            with ui.column().classes('w-full gap-2'):
+                ui.button(
+                    '1. Triage',
+                    icon='photo_camera',
+                    on_click=lambda: ui.navigate.to('/triage')
+                ).classes('w-full justify-start')
+
+                ui.button(
+                    '2. Processing',
+                    icon='psychology',
+                    on_click=lambda: ui.navigate.to('/processing')
+                ).classes('w-full justify-start')
+
+                ui.button(
+                    '3. Review',
+                    icon='fact_check',
+                    on_click=lambda: ui.navigate.to('/review')
+                ).classes('w-full justify-start')
+
+                ui.button(
+                    '4. Export',
+                    icon='cloud_upload',
+                    on_click=lambda: ui.navigate.to('/export')
+                ).classes('w-full justify-start')
+
+                ui.separator()
+
+                ui.button(
+                    'Settings',
+                    icon='settings',
+                    on_click=lambda: ui.navigate.to('/settings')
+                ).classes('w-full justify-start')
+
+        # Main content - welcome page
+        with ui.column().classes('w-full max-w-4xl mx-auto p-8'):
+            ui.label('Welcome to Inspection Photo Review').classes('text-3xl font-bold mb-4')
+
+            ui.markdown('''
+            This application helps you manage inspection photos and match them with building code references.
+
+            **Workflow:**
+
+            1. **Triage** - Load photos, edit them, add location/description, and queue for processing
+            2. **Processing** - AI analyzes photos and suggests code references
+            3. **Review** - Verify AI suggestions against code books, capture snapshots
+            4. **Export** - Export approved items to Google Docs
+
+            **Getting Started:**
+
+            - First, go to **Settings** to configure your API keys and code book folders
+            - Then start with **Triage** to add your first inspection photos
+            ''')
+
+            # Quick status
+            with ui.card().classes('w-full mt-8'):
+                ui.label('Quick Status').classes('text-lg font-bold mb-4')
+
+                with ui.row().classes('w-full gap-8'):
+                    # Pending count
+                    from .core.inspection_item import ItemStatus
+                    pending = len([i for i in app_state.queue.get_all_items()
+                                  if i.status == ItemStatus.PENDING])
+                    with ui.column().classes('items-center'):
+                        ui.label(str(pending)).classes('text-3xl font-bold text-gray-600')
+                        ui.label('Pending').classes('text-sm text-gray-500')
+
+                    # Review ready count
+                    review_ready = len([i for i in app_state.queue.get_all_items()
+                                       if i.status == ItemStatus.REVIEW_READY])
+                    with ui.column().classes('items-center'):
+                        ui.label(str(review_ready)).classes('text-3xl font-bold text-orange-600')
+                        ui.label('Ready for Review').classes('text-sm text-gray-500')
+
+                    # Approved count
+                    approved = len([i for i in app_state.queue.get_all_items()
+                                   if i.status == ItemStatus.APPROVED])
+                    with ui.column().classes('items-center'):
+                        ui.label(str(approved)).classes('text-3xl font-bold text-green-600')
+                        ui.label('Approved').classes('text-sm text-gray-500')
+
+                    # Exported count
+                    exported = len([i for i in app_state.queue.get_all_items()
+                                   if i.status == ItemStatus.EXPORTED])
+                    with ui.column().classes('items-center'):
+                        ui.label(str(exported)).classes('text-3xl font-bold text-teal-600')
+                        ui.label('Exported').classes('text-sm text-gray-500')
+
+            # Config status warning
+            if not app_state.config.is_configured():
+                with ui.card().classes('w-full mt-4 bg-yellow-50'):
+                    with ui.row().classes('items-center gap-2'):
+                        ui.icon('warning').classes('text-yellow-600')
+                        ui.label('API not configured. Please go to Settings.').classes('text-yellow-800')
+
+    @ui.page('/triage')
+    def triage():
+        """Triage page."""
+        _create_page_layout('Triage', TriagePage)
+
+    @ui.page('/processing')
+    def processing():
+        """Processing page."""
+        _create_page_layout('Processing', ProcessingPage)
+
+    @ui.page('/review')
+    def review():
+        """Review page."""
+        _create_page_layout('Review', ReviewPage)
+
+    @ui.page('/export')
+    def export():
+        """Export page."""
+        _create_page_layout('Export', ExportPage)
+
+    @ui.page('/settings')
+    def settings():
+        """Settings page."""
+        _create_page_layout('Settings', SettingsPage)
+
+
+def _create_page_layout(title: str, page_class):
+    """Create a standard page layout with navigation."""
+    app_state = get_app_state()
+
+    # Header
+    with ui.header().classes('bg-blue-800 text-white items-center'):
+        ui.button(icon='menu', on_click=lambda: drawer.toggle()).props('flat color=white')
+        ui.label(f'Inspection App - {title}').classes('text-xl font-bold')
+        ui.space()
+
+        queue_count = len(app_state.queue.get_all_items())
+        ui.badge(f'{queue_count} items').classes('bg-blue-600')
+
+    # Navigation drawer
+    with ui.left_drawer().classes('bg-gray-100') as drawer:
+        ui.label('Navigation').classes('text-lg font-bold mb-4')
+
+        with ui.column().classes('w-full gap-2'):
+            ui.button(
+                'Home',
+                icon='home',
+                on_click=lambda: ui.navigate.to('/')
+            ).classes('w-full justify-start')
+
+            ui.button(
+                '1. Triage',
+                icon='photo_camera',
+                on_click=lambda: ui.navigate.to('/triage')
+            ).classes('w-full justify-start' + (' bg-blue-200' if title == 'Triage' else ''))
+
+            ui.button(
+                '2. Processing',
+                icon='psychology',
+                on_click=lambda: ui.navigate.to('/processing')
+            ).classes('w-full justify-start' + (' bg-blue-200' if title == 'Processing' else ''))
+
+            ui.button(
+                '3. Review',
+                icon='fact_check',
+                on_click=lambda: ui.navigate.to('/review')
+            ).classes('w-full justify-start' + (' bg-blue-200' if title == 'Review' else ''))
+
+            ui.button(
+                '4. Export',
+                icon='cloud_upload',
+                on_click=lambda: ui.navigate.to('/export')
+            ).classes('w-full justify-start' + (' bg-blue-200' if title == 'Export' else ''))
+
+            ui.separator()
+
+            ui.button(
+                'Settings',
+                icon='settings',
+                on_click=lambda: ui.navigate.to('/settings')
+            ).classes('w-full justify-start' + (' bg-blue-200' if title == 'Settings' else ''))
+
+    # Page content
+    page = page_class()
+    page.render()
+
+
+def run():
+    """Run the application."""
+    create_app()
+    ui.run(
+        title='Inspection Photo Review',
+        host='127.0.0.1',
+        port=8080,
+        reload=False,
+        show=True
     )
 
-    app = QApplication(sys.argv)
-    app.setApplicationName("Inspection Photo Review")
-    app.setOrganizationName("InspectionApp")
 
-    # Check for config file
-    config_path = Path("settings.json")
-    if not config_path.exists():
-        config_manager = ConfigManager(config_path)
-        config_manager.create_default()
-
-        QMessageBox.information(
-            None,
-            "First Run",
-            f"Created default config at {config_path}\n\n"
-            "Please edit settings.json with your API keys before running.\n\n"
-            "Required:\n"
-            "- gemini_api_key: Your Google AI API key\n"
-            "- google_docs_credentials_path: Path to OAuth credentials\n"
-            "- code_book_directory: Directory containing PDF code books"
-        )
-        sys.exit(0)
-
-    # Initialize application state
-    try:
-        app_state = AppState(str(config_path))
-    except FileNotFoundError as e:
-        QMessageBox.critical(
-            None,
-            "Configuration Error",
-            f"Required file not found:\n{e}\n\n"
-            "Please check your settings.json configuration."
-        )
-        sys.exit(1)
-    except Exception as e:
-        QMessageBox.critical(
-            None,
-            "Initialization Error",
-            f"Failed to initialize:\n{e}"
-        )
-        sys.exit(1)
-
-    # Load any persisted data
-    try:
-        app_state.load()
-    except Exception as e:
-        print(f"Warning: Could not load saved state: {e}")
-
-    # Create and show main window
-    window = MainWindow(app_state)
-    window.show()
-
-    # Run application
-    exit_code = app.exec()
-
-    # Save state on exit
-    app_state.save()
-
-    sys.exit(exit_code)
-
-
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    run()
