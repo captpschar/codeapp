@@ -2,21 +2,11 @@
 Gemini API client wrapper.
 """
 
-import base64
 from pathlib import Path
 from typing import Optional
 from google import genai
 from google.genai import types
 from core.exceptions import AIConnectionError, AIRateLimitError, AIResponseParseError
-
-
-# Map string thinking levels to ThinkingLevel enum
-THINKING_LEVEL_MAP = {
-    "minimal": "MINIMAL",
-    "low": "LOW",
-    "medium": "MEDIUM",
-    "high": "HIGH",
-}
 
 
 class GeminiClient:
@@ -30,7 +20,7 @@ class GeminiClient:
     ):
         self._api_key = api_key
         self._model_name = model_name
-        self._thinking_level = thinking_level
+        self._thinking_level = thinking_level.lower()
         self._client: Optional[genai.Client] = None
 
     def _get_client(self) -> genai.Client:
@@ -39,34 +29,25 @@ class GeminiClient:
             self._client = genai.Client(api_key=self._api_key)
         return self._client
 
-    def _get_thinking_config(self) -> Optional[types.ThinkingConfig]:
-        """Get thinking config based on model and level."""
-        # Only Gemini 2.5+ and 3+ models support thinking
+    def _build_config(self, system_prompt: str) -> types.GenerateContentConfig:
+        """Build generation config based on model type."""
         model_lower = self._model_name.lower()
 
-        if "2.5" in model_lower:
-            # Gemini 2.5 uses thinking_budget
-            budget_map = {
-                "minimal": 256,
-                "low": 512,
-                "medium": 1024,
-                "high": 4096,
-            }
-            budget = budget_map.get(self._thinking_level.lower(), 1024)
-            return types.ThinkingConfig(thinking_budget=budget)
-
-        elif "3" in model_lower:
-            # Gemini 3 uses thinking_level enum
-            level_str = THINKING_LEVEL_MAP.get(self._thinking_level.lower(), "MEDIUM")
-            try:
-                level_enum = getattr(types.ThinkingLevel, level_str)
-                return types.ThinkingConfig(thinking_level=level_enum)
-            except AttributeError:
-                # Fallback if enum not available
-                return None
-
-        # Other models don't support thinking
-        return None
+        # Gemini 3 and 2.5 models support thinking
+        if "3" in model_lower or "2.5" in model_lower:
+            # Use string thinking_level (works for both 2.5 and 3)
+            # Valid values: "minimal", "low", "medium", "high"
+            return types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                thinking_config=types.ThinkingConfig(
+                    thinking_level=self._thinking_level
+                )
+            )
+        else:
+            # Other models don't support thinking
+            return types.GenerateContentConfig(
+                system_instruction=system_prompt
+            )
 
     def generate_with_image(
         self,
@@ -79,7 +60,7 @@ class GeminiClient:
         try:
             client = self._get_client()
 
-            # Load and encode image
+            # Load image
             image_data = self._load_image(image_path)
 
             # Build content parts
@@ -97,16 +78,7 @@ class GeminiClient:
             ]
 
             # Configure generation
-            thinking_config = self._get_thinking_config()
-            if thinking_config:
-                config = types.GenerateContentConfig(
-                    system_instruction=system_prompt,
-                    thinking_config=thinking_config
-                )
-            else:
-                config = types.GenerateContentConfig(
-                    system_instruction=system_prompt
-                )
+            config = self._build_config(system_prompt)
 
             # Add cached content if available
             if cached_content_id:
@@ -135,16 +107,7 @@ class GeminiClient:
         try:
             client = self._get_client()
 
-            thinking_config = self._get_thinking_config()
-            if thinking_config:
-                config = types.GenerateContentConfig(
-                    system_instruction=system_prompt,
-                    thinking_config=thinking_config
-                )
-            else:
-                config = types.GenerateContentConfig(
-                    system_instruction=system_prompt
-                )
+            config = self._build_config(system_prompt)
 
             response = client.models.generate_content(
                 model=self._model_name,

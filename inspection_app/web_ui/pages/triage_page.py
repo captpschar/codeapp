@@ -29,7 +29,7 @@ class TriagePage:
         self._crop_aspect: Optional[str] = None
 
         # UI elements
-        self._image_element = None
+        self._image_container = None
         self._image_placeholder = None
         self._location_input = None
         self._description_input = None
@@ -127,10 +127,8 @@ class TriagePage:
             # Image display area
             with ui.card().classes('w-full flex-grow'):
                 with ui.scroll_area().classes('w-full h-full'):
-                    with ui.column().classes('w-full items-center justify-center min-h-80'):
-                        self._image_element = ui.image('').classes('max-w-full object-contain')
-                        self._image_element.visible = False
-
+                    self._image_container = ui.column().classes('w-full items-center justify-center min-h-80')
+                    with self._image_container:
                         self._image_placeholder = ui.label(
                             'Load a folder or files to begin'
                         ).classes('text-gray-400 text-lg py-20')
@@ -512,12 +510,13 @@ class TriagePage:
         buffer = io.BytesIO()
         img.save(buffer, format='JPEG', quality=85)
         b64 = base64.b64encode(buffer.getvalue()).decode()
+        data_url = f'data:image/jpeg;base64,{b64}'
 
-        if self._image_element:
-            self._image_element.source = f'data:image/jpeg;base64,{b64}'
-            self._image_element.visible = True
-        if self._image_placeholder:
-            self._image_placeholder.visible = False
+        # Clear container and add image
+        if self._image_container:
+            self._image_container.clear()
+            with self._image_container:
+                ui.image(data_url).classes('max-w-full max-h-[600px] object-contain')
 
     def _rotate(self, degrees: int) -> None:
         """Rotate the image."""
