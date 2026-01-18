@@ -27,7 +27,9 @@ class CodeFolder(BaseModel):
 
 class AISettings(BaseModel):
     """AI service configuration."""
-    model_name: str = "gemini-3-flash-preview"
+    model_config = {"protected_namespaces": ()}
+
+    model_name: str = "gemini-2.5-flash"
     thinking_level: str = "high"
     max_retries: int = 3
     retry_delay_seconds: int = 5
