@@ -13,8 +13,8 @@ if exist venv\Scripts\activate.bat (
     exit /b 1
 )
 
-REM Run the application directly
-python main.py
+REM Run the Flask application
+python flask_app.py
 
 REM Keep window open if there was an error
 if errorlevel 1 (
