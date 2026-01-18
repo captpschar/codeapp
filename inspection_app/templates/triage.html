@@ -1,0 +1,666 @@
+{% extends "base.html" %}
+
+{% block title %}Triage - Inspection Photo Review{% endblock %}
+{% block page_title %}Phase 1: Triage{% endblock %}
+
+{% block top_bar_actions %}
+<div class="btn-group">
+    <button class="btn btn-outline-primary btn-sm" onclick="Triage.showFolderBrowser()">
+        <i class="bi bi-folder2-open"></i> Load Folder
+    </button>
+    <button class="btn btn-outline-secondary btn-sm" onclick="Triage.showFileBrowser()">
+        <i class="bi bi-file-image"></i> Load Files
+    </button>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- Image Panel -->
+    <div class="col-lg-7">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-image"></i> Image</span>
+                <span id="image-counter" class="badge bg-secondary">No images loaded</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="image-container" id="image-container">
+                    <div id="image-placeholder" class="text-muted">
+                        <i class="bi bi-image" style="font-size: 4rem;"></i>
+                        <p>Load a folder or files to begin</p>
+                    </div>
+                    <img id="main-image" src="" alt="" style="display: none;">
+                </div>
+
+                <!-- Image Navigation -->
+                <div class="p-3 border-top d-flex justify-content-between align-items-center">
+                    <div class="btn-group">
+                        <button class="btn btn-outline-secondary btn-sm" onclick="Triage.navigate('first')" title="First">
+                            <i class="bi bi-skip-backward"></i>
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="Triage.navigate('prev')" title="Previous">
+                            <i class="bi bi-chevron-left"></i>
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="Triage.navigate('next')" title="Next">
+                            <i class="bi bi-chevron-right"></i>
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="Triage.navigate('last')" title="Last">
+                            <i class="bi bi-skip-forward"></i>
+                        </button>
+                    </div>
+
+                    <!-- Edit Controls -->
+                    <div class="btn-group">
+                        <button class="btn btn-outline-secondary btn-sm" onclick="Triage.rotate(-90)" title="Rotate Left">
+                            <i class="bi bi-arrow-counterclockwise"></i>
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="Triage.rotate(90)" title="Rotate Right">
+                            <i class="bi bi-arrow-clockwise"></i>
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="Triage.toggleCrop()" title="Crop" id="crop-btn">
+                            <i class="bi bi-crop"></i>
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="Triage.resetEdits()" title="Reset">
+                            <i class="bi bi-arrow-repeat"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Brightness/Contrast -->
+                <div class="p-3 border-top">
+                    <div class="row g-3">
+                        <div class="col-6">
+                            <label class="form-label small">Brightness</label>
+                            <input type="range" class="form-range" id="brightness-slider" min="0.5" max="2" step="0.1" value="1" onchange="Triage.updateEdits()">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small">Contrast</label>
+                            <input type="range" class="form-range" id="contrast-slider" min="0.5" max="2" step="0.1" value="1" onchange="Triage.updateEdits()">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Metadata & Queue Panel -->
+    <div class="col-lg-5">
+        <!-- Metadata -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="bi bi-card-text"></i> Item Details
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label">Location</label>
+                    <input type="text" class="form-control" id="location-input" placeholder="e.g., Building A, Floor 2, Room 201">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Description</label>
+                    <textarea class="form-control" id="description-input" rows="3" placeholder="Describe the issue or finding..."></textarea>
+                </div>
+
+                <!-- Code Folders -->
+                <div class="mb-3">
+                    <label class="form-label">Code Folders</label>
+                    <div class="folder-checkbox-grid" id="folder-checkboxes">
+                        {% for folder in code_folders %}
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" value="{{ folder.name }}" id="folder-{{ loop.index }}" onchange="Triage.updateFolderSelection()">
+                            <label class="form-check-label" for="folder-{{ loop.index }}">{{ folder.name }}</label>
+                        </div>
+                        {% else %}
+                        <p class="text-muted small">No code folders configured. Add them in Settings.</p>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <!-- Chapter Selection -->
+                <div class="mb-3">
+                    <label class="form-label d-flex justify-content-between">
+                        <span>Chapters (PDFs)</span>
+                        <button class="btn btn-link btn-sm p-0" onclick="Triage.showChapterSelector()">
+                            <i class="bi bi-plus-circle"></i> Select
+                        </button>
+                    </label>
+                    <div id="selected-chapters" class="border rounded p-2 bg-light small" style="min-height: 60px;">
+                        <span class="text-muted">No chapters selected</span>
+                    </div>
+                </div>
+
+                <button class="btn btn-primary w-100" onclick="Triage.addToQueue()">
+                    <i class="bi bi-plus-circle me-2"></i>Add to Queue
+                </button>
+            </div>
+        </div>
+
+        <!-- Queue Preview -->
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-inbox"></i> Queue</span>
+                <span class="badge bg-primary" id="queue-count-badge">0</span>
+            </div>
+            <div class="card-body p-0" style="max-height: 300px; overflow-y: auto;">
+                <div id="queue-list">
+                    <p class="text-muted text-center py-4">Queue is empty</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Folder Browser Modal -->
+<div class="modal fade" id="folderBrowserModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-folder2-open"></i> Browse Folders</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Current Path</label>
+                    <input type="text" class="form-control" id="current-folder-path" readonly>
+                </div>
+                <div class="list-group" id="folder-list" style="max-height: 400px; overflow-y: auto;">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="Triage.selectFolder()">Select This Folder</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- File Browser Modal -->
+<div class="modal fade" id="fileBrowserModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-file-image"></i> Browse Files</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Current Path</label>
+                    <input type="text" class="form-control" id="current-file-path" readonly>
+                </div>
+                <div class="list-group" id="file-list" style="max-height: 400px; overflow-y: auto;">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <span class="me-auto text-muted" id="selected-files-count">0 files selected</span>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="Triage.loadSelectedFiles()">Load Selected</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Chapter Selector Modal -->
+<div class="modal fade" id="chapterSelectorModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-book"></i> Select Chapters</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="chapter-list">
+                    <p class="text-muted">Select code folders first to see available chapters.</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="Triage.saveChapterSelection()">Save Selection</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const Triage = {
+    currentImage: null,
+    cropper: null,
+    edits: { rotation: 0, brightness: 1, contrast: 1, crop: null },
+    selectedFolders: [],
+    selectedChapters: [],
+    selectedFiles: [],
+    currentBrowsePath: '',
+
+    async init() {
+        // Load existing triage state
+        try {
+            const state = await App.api('/api/triage/state');
+            this.selectedFolders = state.selected_folders || [];
+            this.selectedChapters = state.selected_chapters || [];
+
+            // Restore folder checkboxes
+            this.selectedFolders.forEach(name => {
+                const cb = document.querySelector(`#folder-checkboxes input[value="${name}"]`);
+                if (cb) cb.checked = true;
+            });
+
+            // Display selected chapters
+            this.displaySelectedChapters();
+
+            // Load current image if any
+            if (state.files && state.files.length > 0) {
+                await this.loadCurrentImage();
+            }
+
+            this.refreshQueue();
+        } catch (e) {
+            console.error('Failed to load triage state:', e);
+        }
+    },
+
+    async showFolderBrowser() {
+        const modal = new bootstrap.Modal(document.getElementById('folderBrowserModal'));
+        modal.show();
+        await this.browseFolders(this.currentBrowsePath || '');
+    },
+
+    async browseFolders(path) {
+        try {
+            const data = await App.api(`/api/browse/folders?path=${encodeURIComponent(path)}`);
+            this.currentBrowsePath = data.current;
+            document.getElementById('current-folder-path').value = data.current;
+
+            const list = document.getElementById('folder-list');
+            list.innerHTML = data.items.map(item => `
+                <a href="#" class="list-group-item list-group-item-action" onclick="Triage.browseFolders('${item.path.replace(/'/g, "\\'")}'); return false;">
+                    <i class="bi bi-folder me-2"></i>${item.name}
+                </a>
+            `).join('');
+        } catch (e) {
+            App.toast('Failed to browse folders: ' + e.message, 'error');
+        }
+    },
+
+    async selectFolder() {
+        const path = document.getElementById('current-folder-path').value;
+        if (!path) return;
+
+        try {
+            const data = await App.api('/api/triage/load-folder', {
+                method: 'POST',
+                body: { folder_path: path }
+            });
+
+            bootstrap.Modal.getInstance(document.getElementById('folderBrowserModal')).hide();
+            App.toast(`Loaded ${data.total} images`, 'success');
+
+            await this.loadCurrentImage();
+        } catch (e) {
+            App.toast('Failed to load folder: ' + e.message, 'error');
+        }
+    },
+
+    async showFileBrowser() {
+        const modal = new bootstrap.Modal(document.getElementById('fileBrowserModal'));
+        modal.show();
+        this.selectedFiles = [];
+        await this.browseFiles(this.currentBrowsePath || '');
+    },
+
+    async browseFiles(path) {
+        try {
+            const data = await App.api(`/api/browse/files?path=${encodeURIComponent(path)}`);
+            this.currentBrowsePath = data.current;
+            document.getElementById('current-file-path').value = data.current;
+
+            const list = document.getElementById('file-list');
+            list.innerHTML = data.items.map(item => {
+                if (item.is_dir) {
+                    return `<a href="#" class="list-group-item list-group-item-action" onclick="Triage.browseFiles('${item.path.replace(/'/g, "\\'")}'); return false;">
+                        <i class="bi bi-folder me-2"></i>${item.name}
+                    </a>`;
+                } else {
+                    const checked = this.selectedFiles.includes(item.path) ? 'checked' : '';
+                    return `<label class="list-group-item">
+                        <input class="form-check-input me-2" type="checkbox" value="${item.path}" ${checked} onchange="Triage.toggleFileSelection(this)">
+                        <i class="bi bi-file-image me-2"></i>${item.name}
+                    </label>`;
+                }
+            }).join('');
+
+            this.updateSelectedFilesCount();
+        } catch (e) {
+            App.toast('Failed to browse files: ' + e.message, 'error');
+        }
+    },
+
+    toggleFileSelection(checkbox) {
+        const path = checkbox.value;
+        if (checkbox.checked) {
+            if (!this.selectedFiles.includes(path)) {
+                this.selectedFiles.push(path);
+            }
+        } else {
+            this.selectedFiles = this.selectedFiles.filter(p => p !== path);
+        }
+        this.updateSelectedFilesCount();
+    },
+
+    updateSelectedFilesCount() {
+        document.getElementById('selected-files-count').textContent = `${this.selectedFiles.length} files selected`;
+    },
+
+    async loadSelectedFiles() {
+        if (this.selectedFiles.length === 0) {
+            App.toast('No files selected', 'warning');
+            return;
+        }
+
+        try {
+            const data = await App.api('/api/triage/load-files', {
+                method: 'POST',
+                body: { file_paths: this.selectedFiles }
+            });
+
+            bootstrap.Modal.getInstance(document.getElementById('fileBrowserModal')).hide();
+            App.toast(`Loaded ${data.total} images`, 'success');
+
+            await this.loadCurrentImage();
+        } catch (e) {
+            App.toast('Failed to load files: ' + e.message, 'error');
+        }
+    },
+
+    async loadCurrentImage() {
+        try {
+            const data = await App.api('/api/triage/current-image');
+
+            document.getElementById('image-placeholder').style.display = 'none';
+            const img = document.getElementById('main-image');
+            img.src = data.image;
+            img.style.display = 'block';
+            this.currentImage = data;
+
+            document.getElementById('image-counter').textContent = `${data.index + 1} / ${data.total}`;
+
+            // Reset edits when loading new image
+            this.resetEdits();
+        } catch (e) {
+            document.getElementById('image-placeholder').style.display = 'flex';
+            document.getElementById('main-image').style.display = 'none';
+        }
+    },
+
+    async navigate(action) {
+        try {
+            await App.api('/api/triage/navigate', {
+                method: 'POST',
+                body: { action }
+            });
+            await this.loadCurrentImage();
+        } catch (e) {
+            App.toast(e.message, 'error');
+        }
+    },
+
+    rotate(degrees) {
+        this.edits.rotation = (this.edits.rotation + degrees) % 360;
+        this.applyEdits();
+    },
+
+    toggleCrop() {
+        const img = document.getElementById('main-image');
+        const btn = document.getElementById('crop-btn');
+
+        if (this.cropper) {
+            // Apply crop
+            const cropData = this.cropper.getData();
+            const imageData = this.cropper.getImageData();
+
+            this.edits.crop = {
+                x: cropData.x / imageData.naturalWidth,
+                y: cropData.y / imageData.naturalHeight,
+                width: cropData.width / imageData.naturalWidth,
+                height: cropData.height / imageData.naturalHeight
+            };
+
+            this.cropper.destroy();
+            this.cropper = null;
+            btn.classList.remove('active', 'btn-primary');
+            btn.classList.add('btn-outline-secondary');
+
+            this.applyEdits();
+        } else {
+            // Start crop
+            this.cropper = new Cropper(img, {
+                viewMode: 1,
+                dragMode: 'crop',
+                autoCropArea: 0.8,
+                responsive: true
+            });
+            btn.classList.add('active', 'btn-primary');
+            btn.classList.remove('btn-outline-secondary');
+        }
+    },
+
+    updateEdits() {
+        this.edits.brightness = parseFloat(document.getElementById('brightness-slider').value);
+        this.edits.contrast = parseFloat(document.getElementById('contrast-slider').value);
+        this.applyEdits();
+    },
+
+    async applyEdits() {
+        if (!this.currentImage) return;
+
+        try {
+            const data = await App.api('/api/triage/edit-image', {
+                method: 'POST',
+                body: {
+                    image_path: this.currentImage.path,
+                    edits: this.edits
+                }
+            });
+
+            document.getElementById('main-image').src = data.image;
+        } catch (e) {
+            App.toast('Failed to apply edits: ' + e.message, 'error');
+        }
+    },
+
+    resetEdits() {
+        this.edits = { rotation: 0, brightness: 1, contrast: 1, crop: null };
+        document.getElementById('brightness-slider').value = 1;
+        document.getElementById('contrast-slider').value = 1;
+
+        if (this.cropper) {
+            this.cropper.destroy();
+            this.cropper = null;
+            document.getElementById('crop-btn').classList.remove('active', 'btn-primary');
+            document.getElementById('crop-btn').classList.add('btn-outline-secondary');
+        }
+
+        if (this.currentImage) {
+            document.getElementById('main-image').src = this.currentImage.image;
+        }
+    },
+
+    updateFolderSelection() {
+        const checkboxes = document.querySelectorAll('#folder-checkboxes input:checked');
+        this.selectedFolders = Array.from(checkboxes).map(cb => cb.value);
+
+        // Save selection
+        App.api('/api/triage/set-selections', {
+            method: 'POST',
+            body: { selected_folders: this.selectedFolders }
+        });
+    },
+
+    async showChapterSelector() {
+        if (this.selectedFolders.length === 0) {
+            App.toast('Please select at least one code folder first', 'warning');
+            return;
+        }
+
+        const modal = new bootstrap.Modal(document.getElementById('chapterSelectorModal'));
+        modal.show();
+
+        // Load chapters from selected folders
+        const chapterList = document.getElementById('chapter-list');
+        chapterList.innerHTML = '<div class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></div>';
+
+        let html = '';
+        for (const folderName of this.selectedFolders) {
+            try {
+                const data = await App.api(`/api/code-folders/${encodeURIComponent(folderName)}/chapters`);
+
+                html += `<div class="mb-3">
+                    <h6 class="text-muted">${folderName}</h6>
+                    <div class="chapter-checkbox-grid">
+                        ${data.chapters.map(ch => {
+                            const key = `${folderName}:${ch}`;
+                            const checked = this.selectedChapters.includes(key) ? 'checked' : '';
+                            return `<div class="form-check">
+                                <input class="form-check-input chapter-cb" type="checkbox" value="${key}" ${checked}>
+                                <label class="form-check-label small">${ch}</label>
+                            </div>`;
+                        }).join('')}
+                    </div>
+                </div>`;
+            } catch (e) {
+                html += `<div class="text-danger small">Failed to load ${folderName}: ${e.message}</div>`;
+            }
+        }
+
+        chapterList.innerHTML = html || '<p class="text-muted">No chapters found</p>';
+    },
+
+    saveChapterSelection() {
+        const checkboxes = document.querySelectorAll('.chapter-cb:checked');
+        this.selectedChapters = Array.from(checkboxes).map(cb => cb.value);
+
+        // Save selection
+        App.api('/api/triage/set-selections', {
+            method: 'POST',
+            body: { selected_chapters: this.selectedChapters }
+        });
+
+        this.displaySelectedChapters();
+        bootstrap.Modal.getInstance(document.getElementById('chapterSelectorModal')).hide();
+    },
+
+    displaySelectedChapters() {
+        const container = document.getElementById('selected-chapters');
+        if (this.selectedChapters.length === 0) {
+            container.innerHTML = '<span class="text-muted">No chapters selected</span>';
+        } else {
+            container.innerHTML = this.selectedChapters.map(ch => {
+                const parts = ch.split(':');
+                return `<span class="badge bg-secondary me-1 mb-1">${parts[1]}</span>`;
+            }).join('');
+        }
+    },
+
+    async addToQueue() {
+        if (!this.currentImage) {
+            App.toast('No image selected', 'warning');
+            return;
+        }
+
+        const location = document.getElementById('location-input').value;
+        const description = document.getElementById('description-input').value;
+
+        if (!location && !description) {
+            App.toast('Please enter location or description', 'warning');
+            return;
+        }
+
+        try {
+            await App.api('/api/triage/add-to-queue', {
+                method: 'POST',
+                body: {
+                    edits: this.edits,
+                    location,
+                    description,
+                    selected_folders: this.selectedFolders,
+                    selected_chapters: this.selectedChapters
+                }
+            });
+
+            App.toast('Added to queue', 'success');
+
+            // Clear inputs
+            document.getElementById('location-input').value = '';
+            document.getElementById('description-input').value = '';
+            this.resetEdits();
+
+            // Move to next image
+            this.navigate('next');
+
+            // Refresh queue
+            this.refreshQueue();
+            App.updateQueueCount();
+
+        } catch (e) {
+            App.toast('Failed to add to queue: ' + e.message, 'error');
+        }
+    },
+
+    async refreshQueue() {
+        try {
+            const data = await App.api('/api/triage/queue');
+
+            document.getElementById('queue-count-badge').textContent = data.items.length;
+
+            const list = document.getElementById('queue-list');
+            if (data.items.length === 0) {
+                list.innerHTML = '<p class="text-muted text-center py-4">Queue is empty</p>';
+            } else {
+                list.innerHTML = data.items.map(item => `
+                    <div class="queue-item d-flex justify-content-between align-items-center">
+                        <div>
+                            <div class="fw-medium small">${item.filename}</div>
+                            <div class="text-muted small">${item.location || 'No location'}</div>
+                        </div>
+                        <div>
+                            <span class="status-badge badge bg-${this.statusColor(item.status)}">${item.status}</span>
+                            <button class="btn btn-sm btn-link text-danger p-0 ms-2" onclick="Triage.removeFromQueue('${item.id}')">
+                                <i class="bi bi-x-circle"></i>
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        } catch (e) {
+            console.error('Failed to refresh queue:', e);
+        }
+    },
+
+    statusColor(status) {
+        return {
+            'pending': 'secondary',
+            'processing': 'info',
+            'review_ready': 'warning',
+            'approved': 'success',
+            'exported': 'primary',
+            'error': 'danger'
+        }[status] || 'secondary';
+    },
+
+    async removeFromQueue(itemId) {
+        try {
+            await App.api('/api/triage/remove-from-queue', {
+                method: 'POST',
+                body: { item_id: itemId }
+            });
+            this.refreshQueue();
+            App.updateQueueCount();
+        } catch (e) {
+            App.toast('Failed to remove item: ' + e.message, 'error');
+        }
+    }
+};
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', () => Triage.init());
+</script>
+{% endblock %}

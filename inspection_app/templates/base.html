@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Inspection Photo Review{% endblock %}</title>
+
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.2/font/bootstrap-icons.min.css">
+    <!-- Cropper.js CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/cropperjs@1.6.1/dist/cropper.min.css" rel="stylesheet">
+
+    <style>
+        :root {
+            --sidebar-width: 220px;
+        }
+
+        body {
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            width: var(--sidebar-width);
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 100vh;
+            background: #1e3a5f;
+            padding-top: 1rem;
+            z-index: 1000;
+        }
+
+        .sidebar .nav-link {
+            color: rgba(255,255,255,0.8);
+            padding: 0.75rem 1.25rem;
+            border-radius: 0;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .sidebar .nav-link:hover {
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+        }
+
+        .sidebar .nav-link.active {
+            background: #2563eb;
+            color: #fff;
+        }
+
+        .sidebar .brand {
+            color: #fff;
+            font-weight: bold;
+            font-size: 1.1rem;
+            padding: 0.5rem 1.25rem 1.5rem;
+            display: block;
+        }
+
+        .main-content {
+            margin-left: var(--sidebar-width);
+            min-height: 100vh;
+            background: #f8f9fa;
+        }
+
+        .top-bar {
+            background: #fff;
+            border-bottom: 1px solid #dee2e6;
+            padding: 0.75rem 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .content-area {
+            padding: 1.5rem;
+        }
+
+        .card {
+            border: none;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .stat-card {
+            text-align: center;
+            padding: 1.5rem;
+        }
+
+        .stat-card .stat-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+        }
+
+        .stat-card .stat-label {
+            color: #6c757d;
+            font-size: 0.875rem;
+        }
+
+        .image-container {
+            background: #e9ecef;
+            min-height: 400px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .image-container img {
+            max-width: 100%;
+            max-height: 600px;
+            object-fit: contain;
+        }
+
+        .queue-item {
+            padding: 0.75rem;
+            border-bottom: 1px solid #dee2e6;
+            cursor: pointer;
+        }
+
+        .queue-item:hover {
+            background: #f8f9fa;
+        }
+
+        .queue-item.active {
+            background: #e7f1ff;
+            border-left: 3px solid #2563eb;
+        }
+
+        .status-badge {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+        }
+
+        .btn-icon {
+            width: 38px;
+            height: 38px;
+            padding: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .folder-checkbox-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 0.5rem;
+        }
+
+        .chapter-checkbox-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 0.5rem;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .pdf-viewer {
+            background: #525659;
+            min-height: 500px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .pdf-viewer img {
+            max-width: 100%;
+            max-height: 700px;
+        }
+
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255,255,255,0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+
+        /* Toast notifications */
+        .toast-container {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            z-index: 2000;
+        }
+    </style>
+
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <!-- Sidebar Navigation -->
+    <nav class="sidebar">
+        <span class="brand">
+            <i class="bi bi-camera"></i> Inspection App
+        </span>
+
+        <ul class="nav flex-column">
+            <li class="nav-item">
+                <a class="nav-link {% if request.path == '/' %}active{% endif %}" href="/">
+                    <i class="bi bi-house"></i> Dashboard
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if request.path == '/triage' %}active{% endif %}" href="/triage">
+                    <i class="bi bi-images"></i> 1. Triage
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if request.path == '/processing' %}active{% endif %}" href="/processing">
+                    <i class="bi bi-cpu"></i> 2. Processing
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if request.path == '/review' %}active{% endif %}" href="/review">
+                    <i class="bi bi-check2-square"></i> 3. Review
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if request.path == '/export' %}active{% endif %}" href="/export">
+                    <i class="bi bi-cloud-upload"></i> 4. Export
+                </a>
+            </li>
+            <li class="nav-item mt-3">
+                <a class="nav-link {% if request.path == '/settings' %}active{% endif %}" href="/settings">
+                    <i class="bi bi-gear"></i> Settings
+                </a>
+            </li>
+        </ul>
+
+        <div class="mt-auto p-3 text-white-50 small" style="position: absolute; bottom: 0;">
+            <div id="queue-badge">
+                <i class="bi bi-inbox"></i> <span id="queue-count">0</span> items in queue
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <div class="top-bar">
+            <h5 class="mb-0">{% block page_title %}Dashboard{% endblock %}</h5>
+            <div>
+                {% block top_bar_actions %}{% endblock %}
+            </div>
+        </div>
+
+        <div class="content-area">
+            {% block content %}{% endblock %}
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container"></div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Cropper.js -->
+    <script src="https://cdn.jsdelivr.net/npm/cropperjs@1.6.1/dist/cropper.min.js"></script>
+
+    <script>
+        // Common utilities
+        const App = {
+            // Show toast notification
+            toast(message, type = 'info') {
+                const container = document.querySelector('.toast-container');
+                const id = 'toast-' + Date.now();
+
+                const bgClass = {
+                    'success': 'bg-success',
+                    'error': 'bg-danger',
+                    'warning': 'bg-warning',
+                    'info': 'bg-primary'
+                }[type] || 'bg-primary';
+
+                const html = `
+                    <div id="${id}" class="toast align-items-center text-white ${bgClass}" role="alert">
+                        <div class="d-flex">
+                            <div class="toast-body">${message}</div>
+                            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+                        </div>
+                    </div>
+                `;
+
+                container.insertAdjacentHTML('beforeend', html);
+                const toastEl = document.getElementById(id);
+                const toast = new bootstrap.Toast(toastEl, { delay: 4000 });
+                toast.show();
+
+                toastEl.addEventListener('hidden.bs.toast', () => toastEl.remove());
+            },
+
+            // API call helper
+            async api(url, options = {}) {
+                const defaults = {
+                    headers: { 'Content-Type': 'application/json' }
+                };
+
+                if (options.body && typeof options.body === 'object') {
+                    options.body = JSON.stringify(options.body);
+                }
+
+                const response = await fetch(url, { ...defaults, ...options });
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'API Error');
+                }
+
+                return data;
+            },
+
+            // Update queue count
+            async updateQueueCount() {
+                try {
+                    const data = await this.api('/api/triage/queue');
+                    document.getElementById('queue-count').textContent = data.items.length;
+                } catch (e) {
+                    console.error('Failed to update queue count:', e);
+                }
+            }
+        };
+
+        // Update queue count on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            App.updateQueueCount();
+        });
+    </script>
+
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

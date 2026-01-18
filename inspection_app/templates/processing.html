@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+
+{% block title %}Processing - Inspection Photo Review{% endblock %}
+{% block page_title %}Phase 2: AI Processing{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- Controls -->
+    <div class="col-lg-4">
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="bi bi-cpu"></i> Processing Controls
+            </div>
+            <div class="card-body">
+                <div class="mb-3 text-center">
+                    <div class="display-4 fw-bold text-primary" id="pending-count">0</div>
+                    <div class="text-muted">Pending Items</div>
+                </div>
+
+                <div class="d-grid gap-2">
+                    <button class="btn btn-success btn-lg" id="start-btn" onclick="Processing.start()">
+                        <i class="bi bi-play-fill me-2"></i>Start Processing
+                    </button>
+                    <button class="btn btn-danger btn-lg" id="stop-btn" onclick="Processing.stop()" style="display: none;">
+                        <i class="bi bi-stop-fill me-2"></i>Stop Processing
+                    </button>
+                </div>
+
+                <!-- Progress -->
+                <div id="progress-section" class="mt-4" style="display: none;">
+                    <div class="mb-2 d-flex justify-content-between">
+                        <span>Progress</span>
+                        <span id="progress-text">0 / 0</span>
+                    </div>
+                    <div class="progress" style="height: 20px;">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" id="progress-bar" style="width: 0%"></div>
+                    </div>
+                    <div class="mt-2 text-muted small" id="current-item">
+                        Processing...
+                    </div>
+                </div>
+
+                <!-- Error Display -->
+                <div id="error-display" class="alert alert-danger mt-3" style="display: none;">
+                    <i class="bi bi-exclamation-triangle me-2"></i>
+                    <span id="error-message"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Status Summary -->
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-bar-chart"></i> Status Summary
+            </div>
+            <div class="card-body">
+                <div class="d-flex justify-content-between mb-2">
+                    <span><span class="badge bg-secondary">●</span> Pending</span>
+                    <span id="stat-pending">0</span>
+                </div>
+                <div class="d-flex justify-content-between mb-2">
+                    <span><span class="badge bg-info">●</span> Processing</span>
+                    <span id="stat-processing">0</span>
+                </div>
+                <div class="d-flex justify-content-between mb-2">
+                    <span><span class="badge bg-warning">●</span> Review Ready</span>
+                    <span id="stat-review">0</span>
+                </div>
+                <div class="d-flex justify-content-between mb-2">
+                    <span><span class="badge bg-success">●</span> Approved</span>
+                    <span id="stat-approved">0</span>
+                </div>
+                <div class="d-flex justify-content-between">
+                    <span><span class="badge bg-danger">●</span> Error</span>
+                    <span id="stat-error">0</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Items List -->
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-list-check"></i> Queue Items</span>
+                <button class="btn btn-outline-secondary btn-sm" onclick="Processing.refresh()">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                </button>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Image</th>
+                                <th>Status</th>
+                                <th>Error</th>
+                            </tr>
+                        </thead>
+                        <tbody id="items-table">
+                            <tr>
+                                <td colspan="3" class="text-center text-muted py-4">No items in queue</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const Processing = {
+    pollInterval: null,
+
+    async init() {
+        await this.refresh();
+        this.startPolling();
+    },
+
+    startPolling() {
+        this.pollInterval = setInterval(() => this.updateStatus(), 2000);
+    },
+
+    stopPolling() {
+        if (this.pollInterval) {
+            clearInterval(this.pollInterval);
+            this.pollInterval = null;
+        }
+    },
+
+    async refresh() {
+        await Promise.all([
+            this.updateStatus(),
+            this.updateItems()
+        ]);
+    },
+
+    async updateStatus() {
+        try {
+            const data = await App.api('/api/processing/status');
+
+            document.getElementById('pending-count').textContent = data.pending;
+
+            // Update buttons
+            document.getElementById('start-btn').style.display = data.running ? 'none' : 'block';
+            document.getElementById('stop-btn').style.display = data.running ? 'block' : 'none';
+
+            // Update progress
+            const progressSection = document.getElementById('progress-section');
+            if (data.running) {
+                progressSection.style.display = 'block';
+                document.getElementById('progress-text').textContent = `${data.progress} / ${data.total}`;
+                const pct = data.total > 0 ? (data.progress / data.total * 100) : 0;
+                document.getElementById('progress-bar').style.width = pct + '%';
+                document.getElementById('current-item').textContent = `Processing: ${data.current_item || '...'}`;
+            } else {
+                progressSection.style.display = 'none';
+            }
+
+            // Update error
+            const errorDisplay = document.getElementById('error-display');
+            if (data.error) {
+                errorDisplay.style.display = 'block';
+                document.getElementById('error-message').textContent = data.error;
+            } else {
+                errorDisplay.style.display = 'none';
+            }
+
+        } catch (e) {
+            console.error('Failed to update status:', e);
+        }
+    },
+
+    async updateItems() {
+        try {
+            const data = await App.api('/api/processing/items');
+
+            // Update stats
+            const stats = { pending: 0, processing: 0, review_ready: 0, approved: 0, error: 0 };
+            data.items.forEach(item => {
+                if (stats[item.status] !== undefined) {
+                    stats[item.status]++;
+                }
+            });
+
+            document.getElementById('stat-pending').textContent = stats.pending;
+            document.getElementById('stat-processing').textContent = stats.processing;
+            document.getElementById('stat-review').textContent = stats.review_ready;
+            document.getElementById('stat-approved').textContent = stats.approved;
+            document.getElementById('stat-error').textContent = stats.error;
+
+            // Update table
+            const tbody = document.getElementById('items-table');
+            if (data.items.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-4">No items in queue</td></tr>';
+            } else {
+                tbody.innerHTML = data.items.map(item => `
+                    <tr>
+                        <td>${item.filename}</td>
+                        <td><span class="badge bg-${this.statusColor(item.status)}">${item.status}</span></td>
+                        <td class="text-danger small">${item.error || ''}</td>
+                    </tr>
+                `).join('');
+            }
+
+        } catch (e) {
+            console.error('Failed to update items:', e);
+        }
+    },
+
+    statusColor(status) {
+        return {
+            'pending': 'secondary',
+            'processing': 'info',
+            'review_ready': 'warning',
+            'approved': 'success',
+            'exported': 'primary',
+            'error': 'danger'
+        }[status] || 'secondary';
+    },
+
+    async start() {
+        try {
+            await App.api('/api/processing/start', { method: 'POST' });
+            App.toast('Processing started', 'success');
+            this.refresh();
+        } catch (e) {
+            App.toast('Failed to start: ' + e.message, 'error');
+        }
+    },
+
+    async stop() {
+        try {
+            await App.api('/api/processing/stop', { method: 'POST' });
+            App.toast('Processing stopped', 'info');
+            this.refresh();
+        } catch (e) {
+            App.toast('Failed to stop: ' + e.message, 'error');
+        }
+    }
+};
+
+document.addEventListener('DOMContentLoaded', () => Processing.init());
+
+// Cleanup on page leave
+window.addEventListener('beforeunload', () => Processing.stopPolling());
+</script>
+{% endblock %}

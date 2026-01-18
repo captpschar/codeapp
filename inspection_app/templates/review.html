@@ -1,0 +1,466 @@
+{% extends "base.html" %}
+
+{% block title %}Review - Inspection Photo Review{% endblock %}
+{% block page_title %}Phase 3: Review & Approve{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- Items List -->
+    <div class="col-lg-3">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-list-check"></i> Items to Review
+            </div>
+            <div class="card-body p-0" style="max-height: 700px; overflow-y: auto;">
+                <div id="review-items-list">
+                    <p class="text-muted text-center py-4">Loading...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Item Details + Photo -->
+    <div class="col-lg-5">
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-image"></i> Inspection Photo</span>
+                <span class="badge bg-secondary" id="selected-item-status">-</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="image-container" id="photo-container" style="min-height: 300px;">
+                    <div id="photo-placeholder" class="text-muted">
+                        <i class="bi bi-image" style="font-size: 3rem;"></i>
+                        <p>Select an item to view</p>
+                    </div>
+                    <img id="item-photo" src="" alt="" style="display: none;">
+                </div>
+            </div>
+        </div>
+
+        <!-- Item Info -->
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-info-circle"></i> Item Details
+            </div>
+            <div class="card-body" id="item-details">
+                <p class="text-muted">Select an item to see details</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI Results & PDF Viewer -->
+    <div class="col-lg-4">
+        <!-- AI Analysis -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="bi bi-robot"></i> AI Analysis
+            </div>
+            <div class="card-body" id="ai-results">
+                <p class="text-muted">Select an item to see AI results</p>
+            </div>
+        </div>
+
+        <!-- PDF Search -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="bi bi-search"></i> PDF Search
+            </div>
+            <div class="card-body">
+                <div class="input-group mb-3">
+                    <select class="form-select" id="pdf-select" style="max-width: 200px;">
+                        <option value="">Select PDF...</option>
+                    </select>
+                    <input type="text" class="form-control" id="search-term" placeholder="Search term...">
+                    <button class="btn btn-primary" onclick="Review.searchPdf()">
+                        <i class="bi bi-search"></i>
+                    </button>
+                </div>
+                <div id="search-results" class="small text-muted"></div>
+            </div>
+        </div>
+
+        <!-- PDF Viewer -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-file-pdf"></i> PDF Viewer</span>
+                <div class="btn-group btn-group-sm">
+                    <button class="btn btn-outline-secondary" onclick="Review.pdfNav('first')"><i class="bi bi-skip-backward"></i></button>
+                    <button class="btn btn-outline-secondary" onclick="Review.pdfNav('prev')"><i class="bi bi-chevron-left"></i></button>
+                    <button class="btn btn-outline-secondary" onclick="Review.pdfNav('next')"><i class="bi bi-chevron-right"></i></button>
+                    <button class="btn btn-outline-secondary" onclick="Review.pdfNav('last')"><i class="bi bi-skip-forward"></i></button>
+                </div>
+            </div>
+            <div class="pdf-viewer" id="pdf-viewer">
+                <div id="pdf-placeholder" class="text-white-50">
+                    <i class="bi bi-file-pdf" style="font-size: 3rem;"></i>
+                    <p>Select a PDF to view</p>
+                </div>
+                <img id="pdf-image" src="" alt="" style="display: none;">
+            </div>
+            <div class="card-footer d-flex justify-content-between align-items-center">
+                <span id="pdf-page-info" class="small text-muted">Page - / -</span>
+                <button class="btn btn-sm btn-success" onclick="Review.takeSnapshot()">
+                    <i class="bi bi-camera me-1"></i>Take Snapshot
+                </button>
+            </div>
+        </div>
+
+        <!-- Snapshot Preview -->
+        <div class="card mb-4" id="snapshot-card" style="display: none;">
+            <div class="card-header">
+                <i class="bi bi-card-image"></i> Code Snapshot
+            </div>
+            <div class="card-body p-2">
+                <img id="snapshot-image" src="" alt="Snapshot" class="img-fluid">
+            </div>
+        </div>
+
+        <!-- Approval -->
+        <div class="card">
+            <div class="card-body">
+                <div class="form-check form-switch mb-3">
+                    <input class="form-check-input" type="checkbox" id="approval-checkbox" onchange="Review.toggleApproval()">
+                    <label class="form-check-label" for="approval-checkbox">
+                        <strong>Approve this item</strong>
+                    </label>
+                </div>
+                <div class="d-grid gap-2">
+                    <button class="btn btn-outline-warning" onclick="Review.reprocess()">
+                        <i class="bi bi-arrow-repeat me-1"></i>Send Back to AI
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const Review = {
+    currentItem: null,
+    currentPdf: null,
+    currentPage: 0,
+    totalPages: 0,
+    items: [],
+
+    async init() {
+        await this.loadItems();
+        await this.loadPdfList();
+    },
+
+    async loadItems() {
+        try {
+            const data = await App.api('/api/review/items');
+            this.items = data.items;
+
+            const list = document.getElementById('review-items-list');
+            if (data.items.length === 0) {
+                list.innerHTML = '<p class="text-muted text-center py-4">No items to review</p>';
+            } else {
+                list.innerHTML = data.items.map(item => `
+                    <div class="queue-item ${this.currentItem?.id === item.id ? 'active' : ''}"
+                         onclick="Review.selectItem('${item.id}')">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <div class="fw-medium small">${item.filename}</div>
+                                <div class="text-muted small">${item.location || 'No location'}</div>
+                            </div>
+                            <span class="badge bg-${item.approved ? 'success' : 'warning'}">
+                                ${item.approved ? 'Approved' : 'Pending'}
+                            </span>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        } catch (e) {
+            App.toast('Failed to load items: ' + e.message, 'error');
+        }
+    },
+
+    async loadPdfList() {
+        try {
+            const data = await App.api('/api/pdf/list');
+            const select = document.getElementById('pdf-select');
+
+            // Group by folder
+            const groups = {};
+            data.pdfs.forEach(pdf => {
+                if (!groups[pdf.folder]) groups[pdf.folder] = [];
+                groups[pdf.folder].push(pdf);
+            });
+
+            let html = '<option value="">Select PDF...</option>';
+            for (const [folder, pdfs] of Object.entries(groups)) {
+                html += `<optgroup label="${folder}">`;
+                pdfs.forEach(pdf => {
+                    html += `<option value="${pdf.path}">${pdf.name}</option>`;
+                });
+                html += '</optgroup>';
+            }
+
+            select.innerHTML = html;
+        } catch (e) {
+            console.error('Failed to load PDF list:', e);
+        }
+    },
+
+    async selectItem(itemId) {
+        try {
+            const data = await App.api(`/api/review/item/${itemId}`);
+            this.currentItem = data;
+
+            // Highlight in list
+            document.querySelectorAll('.queue-item').forEach(el => el.classList.remove('active'));
+            event.currentTarget?.classList.add('active');
+
+            // Update photo
+            if (data.image) {
+                document.getElementById('photo-placeholder').style.display = 'none';
+                const img = document.getElementById('item-photo');
+                img.src = data.image;
+                img.style.display = 'block';
+            }
+
+            // Update status badge
+            document.getElementById('selected-item-status').textContent = data.status;
+            document.getElementById('selected-item-status').className = `badge bg-${data.approved ? 'success' : 'warning'}`;
+
+            // Update details
+            document.getElementById('item-details').innerHTML = `
+                <div class="mb-2"><strong>Location:</strong> ${data.location || '-'}</div>
+                <div class="mb-2"><strong>Description:</strong> ${data.description || '-'}</div>
+                <div><strong>Chapters:</strong> ${data.selected_chapters?.length || 0} selected</div>
+            `;
+
+            // Update AI results
+            document.getElementById('ai-results').innerHTML = `
+                <div class="mb-2">
+                    <strong>Code Reference:</strong>
+                    <div class="bg-light p-2 rounded mt-1">${data.ai_reference || 'Not analyzed'}</div>
+                </div>
+                <div class="mb-2">
+                    <strong>Violation:</strong>
+                    <div class="small">${data.ai_violation || '-'}</div>
+                </div>
+                <div class="d-flex gap-3">
+                    <div><strong>Confidence:</strong> <span class="badge bg-${this.confidenceColor(data.ai_confidence)}">${data.ai_confidence || '-'}</span></div>
+                    <div><strong>Type:</strong> ${data.ai_match_type || '-'}</div>
+                </div>
+            `;
+
+            // Set search term from AI reference
+            if (data.ai_reference) {
+                document.getElementById('search-term').value = data.ai_reference;
+            }
+
+            // Update approval checkbox
+            document.getElementById('approval-checkbox').checked = data.approved;
+
+            // Show snapshot if exists
+            if (data.snapshot) {
+                document.getElementById('snapshot-card').style.display = 'block';
+                document.getElementById('snapshot-image').src = data.snapshot;
+            } else {
+                document.getElementById('snapshot-card').style.display = 'none';
+            }
+
+            // Auto-select PDF based on chapters if possible
+            if (data.selected_chapters?.length > 0) {
+                const firstChapter = data.selected_chapters[0];
+                const parts = firstChapter.split(':');
+                if (parts.length === 2) {
+                    // Find matching PDF in select
+                    const select = document.getElementById('pdf-select');
+                    for (const opt of select.options) {
+                        if (opt.value.includes(parts[1])) {
+                            select.value = opt.value;
+                            await this.loadPdf(opt.value);
+                            break;
+                        }
+                    }
+                }
+            }
+
+        } catch (e) {
+            App.toast('Failed to load item: ' + e.message, 'error');
+        }
+    },
+
+    confidenceColor(confidence) {
+        return { 'high': 'success', 'medium': 'warning', 'low': 'danger' }[confidence?.toLowerCase()] || 'secondary';
+    },
+
+    async loadPdf(pdfPath) {
+        if (!pdfPath) return;
+
+        this.currentPdf = pdfPath;
+        this.currentPage = 0;
+
+        await this.renderPdfPage();
+    },
+
+    async renderPdfPage() {
+        if (!this.currentPdf) return;
+
+        try {
+            const data = await App.api('/api/pdf/render', {
+                method: 'POST',
+                body: {
+                    pdf_path: this.currentPdf,
+                    page_num: this.currentPage
+                }
+            });
+
+            document.getElementById('pdf-placeholder').style.display = 'none';
+            const img = document.getElementById('pdf-image');
+            img.src = data.image;
+            img.style.display = 'block';
+
+            this.currentPage = data.page_num;
+            this.totalPages = data.total_pages;
+
+            document.getElementById('pdf-page-info').textContent = `Page ${this.currentPage + 1} / ${this.totalPages}`;
+
+        } catch (e) {
+            App.toast('Failed to render PDF: ' + e.message, 'error');
+        }
+    },
+
+    async searchPdf() {
+        const pdfPath = document.getElementById('pdf-select').value;
+        const term = document.getElementById('search-term').value;
+
+        if (!pdfPath) {
+            App.toast('Please select a PDF', 'warning');
+            return;
+        }
+
+        if (!term) {
+            App.toast('Please enter a search term', 'warning');
+            return;
+        }
+
+        try {
+            // Load PDF if not already
+            if (this.currentPdf !== pdfPath) {
+                await this.loadPdf(pdfPath);
+            }
+
+            const data = await App.api('/api/pdf/search', {
+                method: 'POST',
+                body: { pdf_path: pdfPath, term }
+            });
+
+            const results = document.getElementById('search-results');
+            if (data.found) {
+                results.innerHTML = `<span class="text-success"><i class="bi bi-check-circle"></i> Found ${data.results.length} matches</span>`;
+
+                // Go to first result
+                if (data.first_page !== null) {
+                    this.currentPage = data.first_page;
+                    await this.renderPdfPage();
+                }
+            } else {
+                results.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle"></i> Not found</span>`;
+            }
+
+        } catch (e) {
+            App.toast('Search failed: ' + e.message, 'error');
+        }
+    },
+
+    async pdfNav(action) {
+        if (!this.currentPdf) return;
+
+        switch (action) {
+            case 'first': this.currentPage = 0; break;
+            case 'prev': this.currentPage = Math.max(0, this.currentPage - 1); break;
+            case 'next': this.currentPage = Math.min(this.totalPages - 1, this.currentPage + 1); break;
+            case 'last': this.currentPage = this.totalPages - 1; break;
+        }
+
+        await this.renderPdfPage();
+    },
+
+    async takeSnapshot() {
+        if (!this.currentItem || !this.currentPdf) {
+            App.toast('Please select an item and PDF', 'warning');
+            return;
+        }
+
+        try {
+            const data = await App.api('/api/pdf/snapshot', {
+                method: 'POST',
+                body: {
+                    item_id: this.currentItem.id,
+                    pdf_path: this.currentPdf,
+                    page_num: this.currentPage
+                }
+            });
+
+            App.toast('Snapshot saved', 'success');
+
+            // Show snapshot
+            document.getElementById('snapshot-card').style.display = 'block';
+            document.getElementById('snapshot-image').src = data.snapshot;
+
+        } catch (e) {
+            App.toast('Failed to take snapshot: ' + e.message, 'error');
+        }
+    },
+
+    async toggleApproval() {
+        if (!this.currentItem) return;
+
+        const approved = document.getElementById('approval-checkbox').checked;
+
+        try {
+            await App.api('/api/review/approve', {
+                method: 'POST',
+                body: {
+                    item_id: this.currentItem.id,
+                    approved
+                }
+            });
+
+            App.toast(approved ? 'Item approved' : 'Approval removed', 'success');
+            await this.loadItems();
+
+        } catch (e) {
+            App.toast('Failed to update approval: ' + e.message, 'error');
+            document.getElementById('approval-checkbox').checked = !approved;
+        }
+    },
+
+    async reprocess() {
+        if (!this.currentItem) return;
+
+        if (!confirm('Send this item back for AI processing?')) return;
+
+        try {
+            await App.api('/api/review/reprocess', {
+                method: 'POST',
+                body: { item_id: this.currentItem.id }
+            });
+
+            App.toast('Item sent back for processing', 'success');
+            this.currentItem = null;
+            await this.loadItems();
+
+        } catch (e) {
+            App.toast('Failed to reprocess: ' + e.message, 'error');
+        }
+    }
+};
+
+document.addEventListener('DOMContentLoaded', () => Review.init());
+
+// Handle PDF select change
+document.getElementById('pdf-select')?.addEventListener('change', (e) => {
+    if (e.target.value) {
+        Review.loadPdf(e.target.value);
+    }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,291 @@
+{% extends "base.html" %}
+
+{% block title %}Export - Inspection Photo Review{% endblock %}
+{% block page_title %}Phase 4: Export to Google Docs{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- Export Controls -->
+    <div class="col-lg-5">
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="bi bi-clipboard-check"></i> Pre-flight Checks
+            </div>
+            <div class="card-body">
+                <div id="preflight-checks">
+                    <div class="d-flex align-items-center mb-3">
+                        <span class="spinner-border spinner-border-sm me-3"></span>
+                        <span>Checking requirements...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="bi bi-cloud-upload"></i> Export Controls
+            </div>
+            <div class="card-body">
+                <div class="mb-4 text-center">
+                    <div class="display-4 fw-bold text-success" id="approved-count">0</div>
+                    <div class="text-muted">Approved Items</div>
+                </div>
+
+                <div class="d-grid gap-2">
+                    <button class="btn btn-success btn-lg" id="export-btn" onclick="Export.start()" disabled>
+                        <i class="bi bi-cloud-upload me-2"></i>Export to Google Docs
+                    </button>
+                    <button class="btn btn-danger btn-lg" id="stop-export-btn" style="display: none;" onclick="Export.stop()">
+                        <i class="bi bi-stop-fill me-2"></i>Stop Export
+                    </button>
+                </div>
+
+                <!-- Progress -->
+                <div id="export-progress" class="mt-4" style="display: none;">
+                    <div class="mb-2 d-flex justify-content-between">
+                        <span>Exporting...</span>
+                        <span id="export-progress-text">0 / 0</span>
+                    </div>
+                    <div class="progress" style="height: 20px;">
+                        <div class="progress-bar bg-success progress-bar-striped progress-bar-animated" id="export-progress-bar" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <!-- Result -->
+                <div id="export-result" class="mt-4" style="display: none;">
+                    <div class="alert alert-success">
+                        <i class="bi bi-check-circle me-2"></i>
+                        <strong>Export Complete!</strong>
+                        <p class="mb-2 mt-2">Your document is ready:</p>
+                        <a href="#" id="doc-link" target="_blank" class="btn btn-outline-success">
+                            <i class="bi bi-box-arrow-up-right me-1"></i>Open Google Doc
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Error -->
+                <div id="export-error" class="alert alert-danger mt-4" style="display: none;">
+                    <i class="bi bi-exclamation-triangle me-2"></i>
+                    <span id="export-error-message"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Approved Items List -->
+    <div class="col-lg-7">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-list-check"></i> Approved Items</span>
+                <button class="btn btn-outline-secondary btn-sm" onclick="Export.refresh()">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                </button>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Image</th>
+                                <th>Location</th>
+                                <th>Code Reference</th>
+                                <th>Snapshot</th>
+                            </tr>
+                        </thead>
+                        <tbody id="approved-items-table">
+                            <tr>
+                                <td colspan="4" class="text-center text-muted py-4">Loading...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Export History -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <i class="bi bi-clock-history"></i> Export History
+            </div>
+            <div class="card-body p-0">
+                <div id="export-history" class="p-3">
+                    <p class="text-muted text-center mb-0">No exports yet</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const Export = {
+    pollInterval: null,
+
+    async init() {
+        await this.runPreflight();
+        await this.loadApprovedItems();
+        this.startPolling();
+    },
+
+    startPolling() {
+        this.pollInterval = setInterval(() => this.updateStatus(), 2000);
+    },
+
+    stopPolling() {
+        if (this.pollInterval) {
+            clearInterval(this.pollInterval);
+            this.pollInterval = null;
+        }
+    },
+
+    async runPreflight() {
+        try {
+            const data = await App.api('/api/export/preflight');
+
+            const container = document.getElementById('preflight-checks');
+            container.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span>API Key Configured</span>
+                    <i class="bi ${data.api_configured ? 'bi-check-circle-fill text-success' : 'bi-x-circle-fill text-danger'}"></i>
+                </div>
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span>Google Credentials</span>
+                    <i class="bi ${data.credentials_exist ? 'bi-check-circle-fill text-success' : 'bi-x-circle-fill text-danger'}"></i>
+                </div>
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span>Approved Items</span>
+                    <span class="${data.approved_items > 0 ? 'text-success' : 'text-danger'}">${data.approved_items}</span>
+                </div>
+                <div class="d-flex justify-content-between align-items-center">
+                    <span>Items with Snapshots</span>
+                    <span>${data.items_with_snapshots}</span>
+                </div>
+            `;
+
+            // Enable/disable export button
+            document.getElementById('export-btn').disabled = !data.ready;
+            document.getElementById('approved-count').textContent = data.approved_items;
+
+            if (!data.ready) {
+                if (!data.api_configured || !data.credentials_exist) {
+                    container.innerHTML += `
+                        <div class="alert alert-warning mt-3 mb-0">
+                            <i class="bi bi-exclamation-triangle me-2"></i>
+                            Please configure API credentials in <a href="/settings">Settings</a>
+                        </div>
+                    `;
+                } else if (data.approved_items === 0) {
+                    container.innerHTML += `
+                        <div class="alert alert-info mt-3 mb-0">
+                            <i class="bi bi-info-circle me-2"></i>
+                            No approved items. Go to <a href="/review">Review</a> to approve items.
+                        </div>
+                    `;
+                }
+            }
+
+        } catch (e) {
+            App.toast('Preflight check failed: ' + e.message, 'error');
+        }
+    },
+
+    async loadApprovedItems() {
+        try {
+            const data = await App.api('/api/review/items');
+            const approved = data.items.filter(i => i.approved);
+
+            const tbody = document.getElementById('approved-items-table');
+            if (approved.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4">No approved items</td></tr>';
+            } else {
+                tbody.innerHTML = approved.map(item => `
+                    <tr>
+                        <td>${item.filename}</td>
+                        <td>${item.location || '-'}</td>
+                        <td class="small">${item.ai_reference || '-'}</td>
+                        <td>
+                            ${item.snapshot_path
+                                ? '<i class="bi bi-check-circle text-success"></i>'
+                                : '<i class="bi bi-x-circle text-muted"></i>'}
+                        </td>
+                    </tr>
+                `).join('');
+            }
+
+        } catch (e) {
+            console.error('Failed to load approved items:', e);
+        }
+    },
+
+    async updateStatus() {
+        try {
+            const data = await App.api('/api/export/status');
+
+            // Update buttons
+            document.getElementById('export-btn').style.display = data.running ? 'none' : 'block';
+            document.getElementById('stop-export-btn').style.display = data.running ? 'block' : 'none';
+
+            // Update progress
+            const progressSection = document.getElementById('export-progress');
+            if (data.running) {
+                progressSection.style.display = 'block';
+                document.getElementById('export-progress-text').textContent = `${data.progress} / ${data.total}`;
+                const pct = data.total > 0 ? (data.progress / data.total * 100) : 0;
+                document.getElementById('export-progress-bar').style.width = pct + '%';
+            } else {
+                progressSection.style.display = 'none';
+            }
+
+            // Show result
+            const resultSection = document.getElementById('export-result');
+            if (data.doc_url && !data.running) {
+                resultSection.style.display = 'block';
+                document.getElementById('doc-link').href = data.doc_url;
+            }
+
+            // Show error
+            const errorSection = document.getElementById('export-error');
+            if (data.error) {
+                errorSection.style.display = 'block';
+                document.getElementById('export-error-message').textContent = data.error;
+            } else {
+                errorSection.style.display = 'none';
+            }
+
+            // Update approved count
+            document.getElementById('approved-count').textContent = data.approved_count;
+
+        } catch (e) {
+            console.error('Failed to update export status:', e);
+        }
+    },
+
+    async refresh() {
+        await this.runPreflight();
+        await this.loadApprovedItems();
+    },
+
+    async start() {
+        try {
+            // Reset UI
+            document.getElementById('export-result').style.display = 'none';
+            document.getElementById('export-error').style.display = 'none';
+
+            await App.api('/api/export/start', { method: 'POST' });
+            App.toast('Export started', 'success');
+
+        } catch (e) {
+            App.toast('Failed to start export: ' + e.message, 'error');
+        }
+    },
+
+    async stop() {
+        App.toast('Export cannot be stopped mid-process', 'warning');
+    }
+};
+
+document.addEventListener('DOMContentLoaded', () => Export.init());
+window.addEventListener('beforeunload', () => Export.stopPolling());
+</script>
+{% endblock %}
