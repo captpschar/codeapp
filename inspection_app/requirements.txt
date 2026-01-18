@@ -1,5 +1,5 @@
-# Web UI framework
-nicegui==2.5.0
+# Web framework
+flask==3.0.0
 
 # PDF handling
 PyMuPDF==1.23.8
@@ -16,6 +16,3 @@ google-auth-oauthlib==1.2.0
 
 # Configuration
 pydantic==2.5.3
-
-# File upload handling
-python-multipart==0.0.9
