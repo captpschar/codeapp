@@ -1122,6 +1122,79 @@ def remove_code_folder():
 # FILE BROWSER API
 # ============================================================================
 
+@app.route('/api/browse/drives')
+def browse_drives():
+    """List available drives (Windows) or root paths."""
+    import platform
+
+    drives = []
+
+    if platform.system() == 'Windows':
+        # Get Windows drive letters
+        import string
+        for letter in string.ascii_uppercase:
+            drive = f"{letter}:\\"
+            if Path(drive).exists():
+                drives.append(drive)
+    else:
+        # Linux/Mac - show common paths
+        drives = [str(Path.home()), '/']
+
+    return jsonify({'drives': drives})
+
+
+@app.route('/api/browse/full')
+def browse_full():
+    """Browse folders and files with full details."""
+    import platform
+
+    start_path = request.args.get('path', '')
+
+    # Default to home directory if empty or invalid
+    if not start_path:
+        path = Path.home()
+    else:
+        path = Path(start_path)
+        if not path.exists():
+            path = Path.home()
+
+    folders = []
+    files = []
+    parent = None
+
+    # Get parent directory
+    if path.parent != path:
+        parent = str(path.parent)
+    elif platform.system() == 'Windows':
+        # On Windows, if at drive root, no parent
+        parent = None
+
+    try:
+        for item in sorted(path.iterdir()):
+            try:
+                if item.is_dir() and not item.name.startswith('.'):
+                    folders.append({
+                        'name': item.name,
+                        'path': str(item)
+                    })
+                elif item.is_file():
+                    files.append({
+                        'name': item.name,
+                        'path': str(item)
+                    })
+            except (PermissionError, OSError):
+                continue
+    except PermissionError:
+        pass
+
+    return jsonify({
+        'current': str(path),
+        'parent': parent,
+        'folders': folders,
+        'files': files
+    })
+
+
 @app.route('/api/browse/folders')
 def browse_folders():
     """Browse folders starting from a path."""
