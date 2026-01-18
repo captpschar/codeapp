@@ -1224,6 +1224,26 @@ def serve_image(image_path):
 # ============================================================================
 
 if __name__ == '__main__':
-    print("Starting Inspection Photo Review (Flask)")
-    print("Open http://127.0.0.1:8080 in your browser")
+    import webbrowser
+
+    url = "http://127.0.0.1:8080"
+
+    print("=" * 50)
+    print("  Inspection Photo Review")
+    print("=" * 50)
+    print(f"  Opening {url}")
+    print("  Press Ctrl+C to stop")
+    print("=" * 50)
+
+    # Open browser after short delay (gives server time to start)
+    def open_browser():
+        import time
+        time.sleep(1.5)
+        webbrowser.open(url)
+
+    # Only open browser on first run (not on reload)
+    import os
+    if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
+        threading.Thread(target=open_browser, daemon=True).start()
+
     app.run(host='127.0.0.1', port=8080, debug=True)
