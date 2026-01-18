@@ -2,10 +2,50 @@
 Settings page for configuring the application.
 """
 
-from nicegui import ui, events
+from nicegui import ui, events, run
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict
 from web_ui.app import get_app_state, notify_success, notify_error
+
+
+def _select_folder() -> Optional[str]:
+    """Open native folder selection dialog."""
+    import tkinter as tk
+    from tkinter import filedialog
+
+    # Create hidden root window
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes('-topmost', True)
+
+    # Open folder dialog
+    folder_path = filedialog.askdirectory(
+        title="Select Folder",
+        mustexist=False
+    )
+
+    root.destroy()
+    return folder_path if folder_path else None
+
+
+def _select_file(filetypes: list = None) -> Optional[str]:
+    """Open native file selection dialog."""
+    import tkinter as tk
+    from tkinter import filedialog
+
+    # Create hidden root window
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes('-topmost', True)
+
+    # Open file dialog
+    file_path = filedialog.askopenfilename(
+        title="Select File",
+        filetypes=filetypes or [("All files", "*.*")]
+    )
+
+    root.destroy()
+    return file_path if file_path else None
 
 
 class SettingsPage:
@@ -17,6 +57,7 @@ class SettingsPage:
         self._credentials_path_input = None
         self._output_dir_input = None
         self._folders_container = None
+        self._folder_inputs: Dict[str, tuple] = {}  # name -> (name_input, path_input)
 
     def render(self) -> None:
         """Render the settings page."""
@@ -39,24 +80,31 @@ class SettingsPage:
 
                     with ui.row().classes('w-full items-end gap-2'):
                         self._credentials_path_input = ui.input(
-                            label='Google Docs Credentials File',
+                            label='Google Docs Credentials File (.json)',
                             value=config.google_docs_credentials_path
                         ).classes('flex-grow')
 
-                        ui.upload(
-                            label='Browse',
-                            auto_upload=True,
-                            on_upload=self._on_credentials_upload
-                        ).classes('w-32').props('accept=.json')
+                        ui.button(
+                            'Browse...',
+                            icon='folder_open',
+                            on_click=self._browse_credentials_file
+                        ).props('outline')
 
             # Output Directory
             with ui.card().classes('w-full'):
                 ui.label('Output Directory').classes('text-lg font-bold mb-4')
 
-                self._output_dir_input = ui.input(
-                    label='Output Directory Path',
-                    value=config.output_directory
-                ).classes('w-full')
+                with ui.row().classes('w-full items-end gap-2'):
+                    self._output_dir_input = ui.input(
+                        label='Output Directory Path',
+                        value=config.output_directory
+                    ).classes('flex-grow')
+
+                    ui.button(
+                        'Browse...',
+                        icon='folder_open',
+                        on_click=self._browse_output_dir
+                    ).props('outline')
 
                 ui.label(
                     'This is where edited images, snapshots, and queue data will be saved.'
@@ -68,6 +116,10 @@ class SettingsPage:
                     ui.label('Code Book Folders').classes('text-lg font-bold')
                     ui.space()
                     ui.button('Add Folder', icon='add', on_click=self._add_folder).props('flat')
+
+                ui.label(
+                    'Add folders containing your PDF code books. Give each a descriptive name.'
+                ).classes('text-sm text-gray-500 mb-4')
 
                 self._folders_container = ui.column().classes('w-full gap-2')
                 self._render_folders()
@@ -108,16 +160,17 @@ class SettingsPage:
                     ).classes('w-40').bind_value(config.pdf_settings, 'snapshot_dpi')
 
             # Save button
-            with ui.row().classes('w-full justify-end'):
+            with ui.row().classes('w-full justify-end gap-2'):
                 ui.button('Save Settings', icon='save', on_click=self._save_settings)
 
     def _render_folders(self) -> None:
         """Render the code folders list."""
         self._folders_container.clear()
+        self._folder_inputs.clear()
 
         with self._folders_container:
             if not self._app_state.config.code_folders:
-                ui.label('No code folders configured').classes('text-gray-400 py-2')
+                ui.label('No code folders configured. Click "Add Folder" to add one.').classes('text-gray-400 py-2')
                 return
 
             for folder in self._app_state.config.code_folders:
@@ -126,14 +179,15 @@ class SettingsPage:
     def _render_folder_row(self, name: str, path: str) -> None:
         """Render a single folder row."""
         exists = Path(path).exists() if path else False
+        pdf_count = len(list(Path(path).glob('*.pdf'))) if exists else 0
 
         with ui.card().classes('w-full'):
             with ui.row().classes('w-full items-center gap-2'):
                 # Status indicator
                 if exists:
-                    ui.icon('check_circle').classes('text-green-500')
+                    ui.icon('check_circle').classes('text-green-500').tooltip('Folder exists')
                 else:
-                    ui.icon('error').classes('text-red-500')
+                    ui.icon('error').classes('text-red-500').tooltip('Folder not found')
 
                 # Name input
                 name_input = ui.input(
@@ -147,16 +201,57 @@ class SettingsPage:
                     value=path
                 ).classes('flex-grow')
 
-                # PDF count
+                # Store references for saving
+                self._folder_inputs[name] = (name_input, path_input)
+
+                # Browse button
+                ui.button(
+                    icon='folder_open',
+                    on_click=lambda n=name: self._browse_folder_path(n)
+                ).props('flat').tooltip('Browse for folder')
+
+                # PDF count badge
                 if exists:
-                    pdf_count = len(list(Path(path).glob('*.pdf')))
-                    ui.badge(f'{pdf_count} PDFs').classes('bg-blue-100')
+                    ui.badge(f'{pdf_count} PDFs', color='blue').tooltip(f'{pdf_count} PDF files found')
 
                 # Remove button
                 ui.button(
                     icon='delete',
                     on_click=lambda n=name: self._remove_folder(n)
-                ).props('flat color=negative')
+                ).props('flat color=negative').tooltip('Remove folder')
+
+    async def _browse_credentials_file(self) -> None:
+        """Open file browser for credentials file."""
+        file_path = await run.io_bound(
+            _select_file,
+            [("JSON files", "*.json"), ("All files", "*.*")]
+        )
+        if file_path:
+            self._credentials_path_input.value = file_path
+            notify_success(f'Selected: {Path(file_path).name}')
+
+    async def _browse_output_dir(self) -> None:
+        """Open folder browser for output directory."""
+        folder_path = await run.io_bound(_select_folder)
+        if folder_path:
+            self._output_dir_input.value = folder_path
+            notify_success(f'Selected: {folder_path}')
+
+    async def _browse_folder_path(self, folder_name: str) -> None:
+        """Open folder browser for a code folder path."""
+        folder_path = await run.io_bound(_select_folder)
+        if folder_path and folder_name in self._folder_inputs:
+            name_input, path_input = self._folder_inputs[folder_name]
+            path_input.value = folder_path
+
+            # Update the config immediately
+            old_name = name_input.value
+            self._app_state.config.remove_code_folder(old_name)
+            self._app_state.config.add_code_folder(old_name, folder_path)
+
+            # Refresh to show PDF count
+            self._render_folders()
+            notify_success(f'Selected: {folder_path}')
 
     def _add_folder(self) -> None:
         """Add a new code folder."""
@@ -176,32 +271,33 @@ class SettingsPage:
         self._app_state.config.remove_code_folder(name)
         self._render_folders()
 
-    def _on_credentials_upload(self, e: events.UploadEventArguments) -> None:
-        """Handle credentials file upload."""
-        try:
-            # Save the uploaded file
-            content = e.content.read()
-            output_dir = self._app_state.get_output_dir()
-            creds_path = output_dir / "credentials.json"
-            creds_path.write_bytes(content)
-
-            self._credentials_path_input.value = str(creds_path)
-            notify_success('Credentials file uploaded')
-        except Exception as ex:
-            notify_error(f'Failed to upload: {ex}')
-
     def _save_settings(self) -> None:
         """Save all settings."""
         try:
             config = self._app_state.config
 
-            # Update values from inputs
+            # Update API settings
             config.gemini_api_key = self._api_key_input.value or ""
             config.google_docs_credentials_path = self._credentials_path_input.value or ""
             config.output_directory = self._output_dir_input.value or "./output"
 
+            # Update folder names and paths from inputs
+            new_folders = []
+            for old_name, (name_input, path_input) in self._folder_inputs.items():
+                new_name = name_input.value or old_name
+                new_path = path_input.value or ""
+                new_folders.append((new_name, new_path))
+
+            # Clear and re-add folders
+            config.code_folders = []
+            for name, path in new_folders:
+                config.add_code_folder(name, path)
+
             # Save to disk
             self._app_state.config_manager.save()
+
+            # Refresh display
+            self._render_folders()
 
             notify_success('Settings saved successfully')
         except Exception as ex:
