@@ -58,8 +58,10 @@ class InspectionItem:
     user_description: str = ""
     user_location: str = ""
     selected_code_version: str = ""
-    selected_code_folder: str = ""  # Name of the code folder
-    selected_chapter_file: str = ""
+    selected_code_folder: str = ""  # Name of the code folder (legacy single)
+    selected_chapter_file: str = ""  # Legacy single chapter
+    selected_code_folders: list = field(default_factory=list)  # Multiple code folders
+    selected_chapters: list = field(default_factory=list)  # Multiple chapters (format: "folder:chapter")
 
     # AI Outputs (Phase 2)
     llm_match_type: Optional[MatchType] = None
@@ -71,7 +73,8 @@ class InspectionItem:
     ai_code_reference: str = ""
     ai_violation_description: str = ""
     ai_search_terms: list = field(default_factory=list)
-    ai_confidence: float = 0.0
+    ai_confidence: Optional[ConfidenceLevel] = None
+    ai_match_type: Optional[MatchType] = None
 
     # Verification State (Phase 3)
     search_status: SearchStatus = SearchStatus.NOT_SEARCHED
@@ -103,6 +106,8 @@ class InspectionItem:
             "selected_code_version": self.selected_code_version,
             "selected_code_folder": self.selected_code_folder,
             "selected_chapter_file": self.selected_chapter_file,
+            "selected_code_folders": self.selected_code_folders,
+            "selected_chapters": self.selected_chapters,
             "llm_match_type": self.llm_match_type.value if self.llm_match_type else None,
             "llm_suggested_term": self.llm_suggested_term,
             "llm_reasoning": self.llm_reasoning,
@@ -110,7 +115,8 @@ class InspectionItem:
             "ai_code_reference": self.ai_code_reference,
             "ai_violation_description": self.ai_violation_description,
             "ai_search_terms": self.ai_search_terms,
-            "ai_confidence": self.ai_confidence,
+            "ai_confidence": self.ai_confidence.value if self.ai_confidence else None,
+            "ai_match_type": self.ai_match_type.value if self.ai_match_type else None,
             "search_status": self.search_status.value,
             "active_search_term": self.active_search_term,
             "current_page_view": self.current_page_view,
@@ -138,6 +144,8 @@ class InspectionItem:
         item.selected_code_version = data.get("selected_code_version", "")
         item.selected_code_folder = data.get("selected_code_folder", "")
         item.selected_chapter_file = data.get("selected_chapter_file", "")
+        item.selected_code_folders = data.get("selected_code_folders", [])
+        item.selected_chapters = data.get("selected_chapters", [])
         if data.get("llm_match_type"):
             item.llm_match_type = MatchType(data["llm_match_type"])
         item.llm_suggested_term = data.get("llm_suggested_term", "")
@@ -147,7 +155,10 @@ class InspectionItem:
         item.ai_code_reference = data.get("ai_code_reference", "")
         item.ai_violation_description = data.get("ai_violation_description", "")
         item.ai_search_terms = data.get("ai_search_terms", [])
-        item.ai_confidence = data.get("ai_confidence", 0.0)
+        if data.get("ai_confidence"):
+            item.ai_confidence = ConfidenceLevel(data["ai_confidence"])
+        if data.get("ai_match_type"):
+            item.ai_match_type = MatchType(data["ai_match_type"])
         item.search_status = SearchStatus(data.get("search_status", "not_searched"))
         item.active_search_term = data.get("active_search_term", "")
         item.current_page_view = data.get("current_page_view", 0)

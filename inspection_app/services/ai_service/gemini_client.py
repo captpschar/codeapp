@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 from google import genai
 from google.genai import types
-from ...core.exceptions import AIConnectionError, AIRateLimitError, AIResponseParseError
+from core.exceptions import AIConnectionError, AIRateLimitError, AIResponseParseError
 
 
 class GeminiClient:

@@ -5,7 +5,7 @@ Parse AI responses into structured data.
 import re
 from typing import Optional
 from dataclasses import dataclass
-from ...core.inspection_item import MatchType, ConfidenceLevel
+from core.inspection_item import MatchType, ConfidenceLevel
 
 
 @dataclass

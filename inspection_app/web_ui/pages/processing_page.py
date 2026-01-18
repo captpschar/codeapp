@@ -176,36 +176,41 @@ class ProcessingPage:
 
             # Import and use AI service
             from services.ai_service.gemini_client import GeminiClient
-            from services.ai_service.prompt_templates import PromptTemplates
-            from services.ai_service.response_parser import ResponseParser
+            from services.ai_service.prompt_templates import (
+                SYSTEM_PROMPT_CODE_ANALYSIS,
+                build_analysis_prompt
+            )
+            from services.ai_service.response_parser import parse_analysis_response
 
             client = GeminiClient(
                 api_key=self._app_state.config.gemini_api_key,
                 model_name=self._app_state.config.ai_settings.model_name
             )
 
-            # Build prompt
-            prompt = PromptTemplates.inspection_analysis(
-                location=item.user_location,
-                description=item.user_description,
-                chapter_hint=item.selected_chapter_file
+            # Build prompts
+            system_prompt = SYSTEM_PROMPT_CODE_ANALYSIS
+            user_prompt = build_analysis_prompt(
+                description=item.user_description or '',
+                location=item.user_location or ''
             )
 
             # Call AI with image
+            image_path = item.photo_edited_path or item.photo_original_path
             response = await asyncio.to_thread(
-                client.analyze_image,
-                item.photo_edited_path or item.photo_original_path,
-                prompt
+                client.generate_with_image,
+                system_prompt,
+                user_prompt,
+                image_path
             )
 
             # Parse response
-            parsed = ResponseParser.parse_inspection_response(response)
+            parsed = parse_analysis_response(response)
 
             # Update item with results
-            item.ai_code_reference = parsed.get('code_reference', '')
-            item.ai_violation_description = parsed.get('violation_description', '')
-            item.ai_search_terms = parsed.get('search_terms', [])
-            item.ai_confidence = parsed.get('confidence', 0.0)
+            item.ai_code_reference = parsed.reference
+            item.ai_violation_description = parsed.reasoning
+            item.ai_match_type = parsed.match_type
+            item.ai_confidence = parsed.confidence
             item.status = ItemStatus.REVIEW_READY
 
             self._app_state.queue.update_item(item)
