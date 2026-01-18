@@ -15,12 +15,10 @@ class GeminiClient:
     def __init__(
         self,
         api_key: str,
-        model_name: str = "gemini-2.5-flash",
-        thinking_level: str = "medium"
+        model_name: str = "gemini-2.5-flash"
     ):
         self._api_key = api_key
         self._model_name = model_name
-        self._thinking_level = thinking_level.lower()
         self._client: Optional[genai.Client] = None
 
     def _get_client(self) -> genai.Client:
@@ -29,32 +27,11 @@ class GeminiClient:
             self._client = genai.Client(api_key=self._api_key)
         return self._client
 
-    def _build_config(self, system_prompt: str) -> types.GenerateContentConfig:
-        """Build generation config based on model type."""
-        model_lower = self._model_name.lower()
-
-        # Gemini 3 and 2.5 models support thinking
-        if "3" in model_lower or "2.5" in model_lower:
-            # Use string thinking_level (works for both 2.5 and 3)
-            # Valid values: "minimal", "low", "medium", "high"
-            return types.GenerateContentConfig(
-                system_instruction=system_prompt,
-                thinking_config=types.ThinkingConfig(
-                    thinking_level=self._thinking_level
-                )
-            )
-        else:
-            # Other models don't support thinking
-            return types.GenerateContentConfig(
-                system_instruction=system_prompt
-            )
-
     def generate_with_image(
         self,
         system_prompt: str,
         user_prompt: str,
-        image_path: str,
-        cached_content_id: Optional[str] = None
+        image_path: str
     ) -> str:
         """Generate response with image input."""
         try:
@@ -77,12 +54,10 @@ class GeminiClient:
                 )
             ]
 
-            # Configure generation
-            config = self._build_config(system_prompt)
-
-            # Add cached content if available
-            if cached_content_id:
-                config.cached_content = cached_content_id
+            # Configure generation - let thinking default to high
+            config = types.GenerateContentConfig(
+                system_instruction=system_prompt
+            )
 
             # Generate response
             response = client.models.generate_content(
@@ -107,7 +82,9 @@ class GeminiClient:
         try:
             client = self._get_client()
 
-            config = self._build_config(system_prompt)
+            config = types.GenerateContentConfig(
+                system_instruction=system_prompt
+            )
 
             response = client.models.generate_content(
                 model=self._model_name,

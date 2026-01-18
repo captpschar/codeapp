@@ -29,7 +29,7 @@ class TriagePage:
         self._crop_aspect: Optional[str] = None
 
         # UI elements
-        self._image_container = None
+        self._image_element = None
         self._image_placeholder = None
         self._location_input = None
         self._description_input = None
@@ -127,11 +127,14 @@ class TriagePage:
             # Image display area
             with ui.card().classes('w-full flex-grow'):
                 with ui.scroll_area().classes('w-full h-full'):
-                    self._image_container = ui.column().classes('w-full items-center justify-center min-h-80')
-                    with self._image_container:
+                    with ui.column().classes('w-full items-center justify-center min-h-80'):
+                        # Placeholder shown when no image
                         self._image_placeholder = ui.label(
                             'Load a folder or files to begin'
                         ).classes('text-gray-400 text-lg py-20')
+                        # Image element - hidden until image loaded
+                        self._image_element = ui.image().classes('max-w-full max-h-[600px] object-contain')
+                        self._image_element.set_visibility(False)
 
     def _render_metadata_panel(self) -> None:
         """Render the metadata entry panel."""
@@ -512,11 +515,12 @@ class TriagePage:
         b64 = base64.b64encode(buffer.getvalue()).decode()
         data_url = f'data:image/jpeg;base64,{b64}'
 
-        # Clear container and add image
-        if self._image_container:
-            self._image_container.clear()
-            with self._image_container:
-                ui.image(data_url).classes('max-w-full max-h-[600px] object-contain')
+        # Update existing image element's source
+        if self._image_element:
+            self._image_element.set_source(data_url)
+            self._image_element.set_visibility(True)
+        if self._image_placeholder:
+            self._image_placeholder.set_visibility(False)
 
     def _rotate(self, degrees: int) -> None:
         """Rotate the image."""
