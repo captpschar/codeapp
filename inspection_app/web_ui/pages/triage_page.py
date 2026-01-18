@@ -17,28 +17,16 @@ class TriagePage:
 
     def __init__(self):
         self._app_state = get_app_state()
+        self._triage = self._app_state.triage_state
 
-        # Image batch state
-        self._image_folder: Optional[Path] = None
-        self._image_files: List[Path] = []
-        self._current_index: int = 0
-
-        # Current image state
+        # Current image state (not persisted - recalculated from file)
         self._original_image: Optional[Image.Image] = None
         self._current_image: Optional[Image.Image] = None
         self._brightness: float = 1.0
         self._contrast: float = 1.0
         self._rotation: int = 0
-
-        # Zoom/crop state
         self._zoom_level: float = 1.0
-        self._crop_aspect: Optional[str] = None  # None = free, "4:3", "16:9", "1:1"
-
-        # Selected code folders (multi-select)
-        self._selected_folders: Set[str] = set()
-
-        # Selected chapters
-        self._selected_chapters: List[str] = []
+        self._crop_aspect: Optional[str] = None
 
         # UI elements
         self._image_element = None
@@ -54,6 +42,9 @@ class TriagePage:
         self._brightness_slider = None
         self._contrast_slider = None
         self._zoom_slider = None
+        self._file_browser_dialog = None
+        self._file_list_container = None
+        self._current_browse_path = None
 
     def render(self) -> None:
         """Render the triage page."""
@@ -66,18 +57,27 @@ class TriagePage:
             with splitter.after:
                 self._render_metadata_panel()
 
+        # Create dialogs
+        self._create_chapter_dialog()
+        self._create_file_browser_dialog()
+
+        # Restore state if images were previously loaded
+        if self._triage.image_files:
+            self._load_current_image()
+
     def _render_image_panel(self) -> None:
         """Render the image editing panel."""
         with ui.column().classes('w-full h-full p-4 gap-2'):
-            # Folder loading controls
+            # Folder/file loading controls
             with ui.row().classes('w-full items-center gap-2'):
-                ui.button('Load Folder', icon='folder_open', on_click=self._browse_folder).props('outline')
+                ui.button('Load Folder', icon='folder_open', on_click=self._show_folder_browser).props('outline')
+                ui.button('Load Files', icon='image', on_click=self._browse_files).props('outline')
 
                 ui.space()
 
                 # Navigation controls
                 ui.button(icon='skip_previous', on_click=self._prev_image).props('flat dense')
-                self._nav_label = ui.label('0 / 0').classes('min-w-20 text-center')
+                self._nav_label = ui.label(self._get_nav_text()).classes('min-w-24 text-center')
                 ui.button(icon='skip_next', on_click=self._next_image).props('flat dense')
 
             # Image adjustment toolbar
@@ -131,9 +131,9 @@ class TriagePage:
                         self._image_element = ui.image('').classes('max-w-full object-contain')
                         self._image_element.visible = False
 
-                        self._image_placeholder = ui.label('Load a folder to begin').classes(
-                            'text-gray-400 text-lg py-20'
-                        )
+                        self._image_placeholder = ui.label(
+                            'Load a folder or files to begin'
+                        ).classes('text-gray-400 text-lg py-20')
 
     def _render_metadata_panel(self) -> None:
         """Render the metadata entry panel."""
@@ -160,10 +160,9 @@ class TriagePage:
             # Chapter selection button and display
             with ui.row().classes('w-full items-center gap-2'):
                 ui.button('Select Chapters', icon='menu_book', on_click=self._show_chapter_dialog).props('outline')
-                self._selected_chapters_label = ui.label('No chapters selected').classes('text-sm text-gray-500')
-
-            # Create chapter selection dialog
-            self._create_chapter_dialog()
+                self._selected_chapters_label = ui.label(
+                    self._get_chapters_text()
+                ).classes('text-sm text-gray-500')
 
             # Add to queue button
             ui.button(
@@ -184,6 +183,21 @@ class TriagePage:
                 self._queue_container = ui.column().classes('w-full')
                 self._refresh_queue()
 
+    def _get_nav_text(self) -> str:
+        """Get navigation label text."""
+        if self._triage.image_files:
+            return f'{self._triage.current_index + 1} / {len(self._triage.image_files)}'
+        return '0 / 0'
+
+    def _get_chapters_text(self) -> str:
+        """Get selected chapters label text."""
+        count = len(self._triage.selected_chapters)
+        if count == 0:
+            return 'No chapters selected'
+        elif count == 1:
+            return '1 chapter selected'
+        return f'{count} chapters selected'
+
     def _render_folder_checkboxes(self) -> None:
         """Render checkbox grid for code folders."""
         folder_names = self._app_state.list_code_folder_names()
@@ -197,7 +211,7 @@ class TriagePage:
             for name in folder_names:
                 cb = ui.checkbox(
                     name,
-                    value=name in self._selected_folders,
+                    value=name in self._triage.selected_folders,
                     on_change=lambda e, n=name: self._toggle_folder(n, e.value)
                 ).classes('text-sm')
                 self._folder_checkboxes[name] = cb
@@ -205,11 +219,11 @@ class TriagePage:
     def _toggle_folder(self, folder_name: str, selected: bool) -> None:
         """Toggle folder selection."""
         if selected:
-            self._selected_folders.add(folder_name)
+            self._triage.selected_folders.add(folder_name)
         else:
-            self._selected_folders.discard(folder_name)
+            self._triage.selected_folders.discard(folder_name)
         # Clear chapter selection when folders change
-        self._selected_chapters = []
+        self._triage.selected_chapters = []
         self._update_chapters_label()
 
     def _create_chapter_dialog(self) -> None:
@@ -225,71 +239,118 @@ class TriagePage:
                     ui.button('Clear All', on_click=self._clear_chapters).props('flat')
                     ui.button('Done', on_click=self._chapter_dialog.close).props('color=primary')
 
-    def _show_chapter_dialog(self) -> None:
-        """Show chapter selection dialog."""
-        if not self._selected_folders:
-            notify_warning('Please select at least one code folder first')
+    def _create_file_browser_dialog(self) -> None:
+        """Create the file browser dialog."""
+        with ui.dialog() as self._file_browser_dialog:
+            with ui.card().classes('w-[600px] max-h-[500px]'):
+                with ui.row().classes('w-full items-center mb-2'):
+                    ui.label('Browse Folders').classes('text-lg font-bold')
+                    ui.space()
+                    ui.button(icon='close', on_click=self._file_browser_dialog.close).props('flat dense')
+
+                # Path display
+                self._path_label = ui.label('').classes('text-sm text-gray-600 mb-2 font-mono')
+
+                # Navigation buttons
+                with ui.row().classes('w-full gap-2 mb-2'):
+                    ui.button('Up', icon='arrow_upward', on_click=self._browse_parent).props('flat dense')
+                    ui.button('Home', icon='home', on_click=self._browse_home).props('flat dense')
+
+                # File list
+                with ui.scroll_area().classes('h-72 border rounded'):
+                    self._file_list_container = ui.column().classes('w-full')
+
+                # Action buttons
+                with ui.row().classes('w-full justify-end gap-2 mt-4'):
+                    ui.button('Cancel', on_click=self._file_browser_dialog.close).props('flat')
+                    ui.button('Select This Folder', icon='folder', on_click=self._select_current_folder).props('color=primary')
+
+    def _show_folder_browser(self) -> None:
+        """Show the folder browser dialog."""
+        # Start from home or last used folder
+        start_path = self._triage.image_folder or Path.home()
+        self._browse_to(start_path)
+        self._file_browser_dialog.open()
+
+    def _browse_to(self, path: Path) -> None:
+        """Browse to a specific path and show contents."""
+        if not path.exists():
+            path = Path.home()
+
+        self._current_browse_path = path
+        self._path_label.text = str(path)
+
+        self._file_list_container.clear()
+
+        try:
+            items = sorted(path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
+        except PermissionError:
+            with self._file_list_container:
+                ui.label('Permission denied').classes('text-red-500 p-2')
             return
 
-        # Populate chapters from selected folders
-        self._chapters_container.clear()
+        image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
+        image_count = sum(1 for f in items if f.is_file() and f.suffix.lower() in image_extensions)
 
-        with self._chapters_container:
-            for folder_name in sorted(self._selected_folders):
-                ui.label(folder_name).classes('font-medium text-sm mt-2 mb-1')
+        with self._file_list_container:
+            # Show image count if any
+            if image_count > 0:
+                ui.label(f'{image_count} images in this folder').classes('text-green-600 text-sm p-2 bg-green-50')
 
-                chapters = self._app_state.list_chapters_in_folder(folder_name)
-                if not chapters:
-                    ui.label('No chapters found').classes('text-gray-400 text-xs ml-2')
-                    continue
+            for item in items:
+                if item.name.startswith('.'):
+                    continue  # Skip hidden files
 
-                with ui.grid(columns=1).classes('w-full gap-0 ml-2'):
-                    for chapter in chapters:
-                        chapter_key = f"{folder_name}:{chapter}"
-                        ui.checkbox(
-                            chapter,
-                            value=chapter_key in self._selected_chapters,
-                            on_change=lambda e, ck=chapter_key: self._toggle_chapter(ck, e.value)
-                        ).classes('text-xs')
+                with ui.row().classes('w-full items-center hover:bg-gray-100 p-1 cursor-pointer rounded'):
+                    if item.is_dir():
+                        ui.icon('folder', color='amber').classes('text-xl')
+                        ui.label(item.name).classes('flex-grow').on('click', lambda p=item: self._browse_to(p))
 
-        self._chapter_dialog.open()
+                        # Show image count in subdirectory
+                        try:
+                            sub_images = sum(1 for f in item.iterdir()
+                                           if f.is_file() and f.suffix.lower() in image_extensions)
+                            if sub_images > 0:
+                                ui.label(f'{sub_images} imgs').classes('text-xs text-gray-400')
+                        except PermissionError:
+                            pass
+                    else:
+                        # Show files with icons
+                        ext = item.suffix.lower()
+                        if ext in image_extensions:
+                            ui.icon('image', color='blue').classes('text-xl')
+                        elif ext == '.pdf':
+                            ui.icon('picture_as_pdf', color='red').classes('text-xl')
+                        else:
+                            ui.icon('insert_drive_file', color='gray').classes('text-xl')
+                        ui.label(item.name).classes('flex-grow text-gray-600')
 
-    def _toggle_chapter(self, chapter_key: str, selected: bool) -> None:
-        """Toggle chapter selection."""
-        if selected:
-            if chapter_key not in self._selected_chapters:
-                self._selected_chapters.append(chapter_key)
-        else:
-            if chapter_key in self._selected_chapters:
-                self._selected_chapters.remove(chapter_key)
-        self._update_chapters_label()
+    def _browse_parent(self) -> None:
+        """Navigate to parent directory."""
+        if self._current_browse_path:
+            parent = self._current_browse_path.parent
+            if parent != self._current_browse_path:
+                self._browse_to(parent)
 
-    def _clear_chapters(self) -> None:
-        """Clear all chapter selections."""
-        self._selected_chapters = []
-        self._update_chapters_label()
-        # Refresh dialog content
-        self._show_chapter_dialog()
+    def _browse_home(self) -> None:
+        """Navigate to home directory."""
+        self._browse_to(Path.home())
 
-    def _update_chapters_label(self) -> None:
-        """Update the chapters label."""
-        count = len(self._selected_chapters)
-        if count == 0:
-            self._selected_chapters_label.text = 'No chapters selected'
-        elif count == 1:
-            self._selected_chapters_label.text = '1 chapter selected'
-        else:
-            self._selected_chapters_label.text = f'{count} chapters selected'
+    def _select_current_folder(self) -> None:
+        """Select current folder and load images."""
+        if self._current_browse_path:
+            self._file_browser_dialog.close()
+            self._load_folder(str(self._current_browse_path))
 
-    async def _browse_folder(self) -> None:
-        """Open folder browser to select image folder."""
-        folder_path = await run.io_bound(self._select_folder_dialog)
+    async def _browse_files(self) -> None:
+        """Open file browser to select individual image files."""
+        file_paths = await run.io_bound(self._select_files_dialog)
 
-        if folder_path:
-            self._load_folder(folder_path)
+        if file_paths:
+            self._load_files(file_paths)
 
-    def _select_folder_dialog(self) -> Optional[str]:
-        """Open native folder selection dialog."""
+    def _select_files_dialog(self) -> Optional[List[str]]:
+        """Open native file selection dialog for multiple files."""
         try:
             import tkinter as tk
             from tkinter import filedialog
@@ -299,12 +360,38 @@ class TriagePage:
             root.attributes('-topmost', True)
             root.focus_force()
 
-            folder_path = filedialog.askdirectory(title="Select Image Folder")
+            file_paths = filedialog.askopenfilenames(
+                title="Select Image Files",
+                filetypes=[
+                    ("Image files", "*.jpg *.jpeg *.png *.gif *.bmp *.webp"),
+                    ("All files", "*.*")
+                ]
+            )
             root.destroy()
 
-            return folder_path if folder_path else None
+            return list(file_paths) if file_paths else None
         except Exception:
             return None
+
+    def _load_files(self, file_paths: List[str]) -> None:
+        """Load selected image files."""
+        image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
+        valid_files = [
+            Path(f) for f in file_paths
+            if Path(f).suffix.lower() in image_extensions
+        ]
+
+        if not valid_files:
+            notify_warning('No valid image files selected')
+            return
+
+        # Store in triage state
+        self._triage.image_files = valid_files
+        self._triage.image_folder = valid_files[0].parent if valid_files else None
+        self._triage.current_index = 0
+
+        notify_success(f'Loaded {len(valid_files)} images')
+        self._load_current_image()
 
     def _load_folder(self, folder_path: str) -> None:
         """Load all images from the selected folder."""
@@ -316,28 +403,38 @@ class TriagePage:
 
         # Find all image files
         image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
-        self._image_files = sorted([
+        image_files = sorted([
             f for f in folder.iterdir()
             if f.is_file() and f.suffix.lower() in image_extensions
         ])
 
-        if not self._image_files:
+        if not image_files:
             notify_warning('No images found in folder')
             return
 
-        self._image_folder = folder
-        self._current_index = 0
+        # Store in triage state
+        self._triage.image_folder = folder
+        self._triage.image_files = image_files
+        self._triage.current_index = 0
 
-        notify_success(f'Loaded {len(self._image_files)} images')
+        notify_success(f'Loaded {len(image_files)} images')
         self._load_current_image()
 
     def _load_current_image(self) -> None:
         """Load the current image from the batch."""
-        if not self._image_files or self._current_index >= len(self._image_files):
+        if not self._triage.image_files:
             return
 
+        if self._triage.current_index >= len(self._triage.image_files):
+            self._triage.current_index = 0
+
         try:
-            image_path = self._image_files[self._current_index]
+            image_path = self._triage.image_files[self._triage.current_index]
+
+            if not image_path.exists():
+                notify_error(f'Image file not found: {image_path.name}')
+                return
+
             self._original_image = Image.open(image_path)
 
             if self._original_image.mode != 'RGB':
@@ -365,24 +462,22 @@ class TriagePage:
 
     def _prev_image(self) -> None:
         """Go to previous image."""
-        if not self._image_files:
+        if not self._triage.image_files:
             return
-        self._current_index = (self._current_index - 1) % len(self._image_files)
+        self._triage.current_index = (self._triage.current_index - 1) % len(self._triage.image_files)
         self._load_current_image()
 
     def _next_image(self) -> None:
         """Go to next image."""
-        if not self._image_files:
+        if not self._triage.image_files:
             return
-        self._current_index = (self._current_index + 1) % len(self._image_files)
+        self._triage.current_index = (self._triage.current_index + 1) % len(self._triage.image_files)
         self._load_current_image()
 
     def _update_nav_label(self) -> None:
         """Update navigation label."""
-        if self._image_files:
-            self._nav_label.text = f'{self._current_index + 1} / {len(self._image_files)}'
-        else:
-            self._nav_label.text = '0 / 0'
+        if self._nav_label:
+            self._nav_label.text = self._get_nav_text()
 
     def _update_image_display(self) -> None:
         """Update the displayed image with current edits."""
@@ -418,9 +513,11 @@ class TriagePage:
         img.save(buffer, format='JPEG', quality=85)
         b64 = base64.b64encode(buffer.getvalue()).decode()
 
-        self._image_element.source = f'data:image/jpeg;base64,{b64}'
-        self._image_element.visible = True
-        self._image_placeholder.visible = False
+        if self._image_element:
+            self._image_element.source = f'data:image/jpeg;base64,{b64}'
+            self._image_element.visible = True
+        if self._image_placeholder:
+            self._image_placeholder.visible = False
 
     def _rotate(self, degrees: int) -> None:
         """Rotate the image."""
@@ -476,6 +573,57 @@ class TriagePage:
         self._current_image = self._original_image.copy()
         self._update_image_display()
 
+    def _show_chapter_dialog(self) -> None:
+        """Show chapter selection dialog."""
+        if not self._triage.selected_folders:
+            notify_warning('Please select at least one code folder first')
+            return
+
+        # Populate chapters from selected folders
+        self._chapters_container.clear()
+
+        with self._chapters_container:
+            for folder_name in sorted(self._triage.selected_folders):
+                ui.label(folder_name).classes('font-medium text-sm mt-2 mb-1')
+
+                chapters = self._app_state.list_chapters_in_folder(folder_name)
+                if not chapters:
+                    ui.label('No chapters found').classes('text-gray-400 text-xs ml-2')
+                    continue
+
+                with ui.grid(columns=1).classes('w-full gap-0 ml-2'):
+                    for chapter in chapters:
+                        chapter_key = f"{folder_name}:{chapter}"
+                        ui.checkbox(
+                            chapter,
+                            value=chapter_key in self._triage.selected_chapters,
+                            on_change=lambda e, ck=chapter_key: self._toggle_chapter(ck, e.value)
+                        ).classes('text-xs')
+
+        self._chapter_dialog.open()
+
+    def _toggle_chapter(self, chapter_key: str, selected: bool) -> None:
+        """Toggle chapter selection."""
+        if selected:
+            if chapter_key not in self._triage.selected_chapters:
+                self._triage.selected_chapters.append(chapter_key)
+        else:
+            if chapter_key in self._triage.selected_chapters:
+                self._triage.selected_chapters.remove(chapter_key)
+        self._update_chapters_label()
+
+    def _clear_chapters(self) -> None:
+        """Clear all chapter selections."""
+        self._triage.selected_chapters = []
+        self._update_chapters_label()
+        # Refresh dialog content
+        self._show_chapter_dialog()
+
+    def _update_chapters_label(self) -> None:
+        """Update the chapters label."""
+        if self._selected_chapters_label:
+            self._selected_chapters_label.text = self._get_chapters_text()
+
     def _add_to_queue(self) -> None:
         """Add current item to the queue."""
         # Validate inputs
@@ -487,11 +635,11 @@ class TriagePage:
             notify_warning('Please enter a location')
             return
 
-        if not self._selected_folders:
+        if not self._triage.selected_folders:
             notify_warning('Please select at least one code folder')
             return
 
-        if not self._selected_chapters:
+        if not self._triage.selected_chapters:
             notify_warning('Please select at least one chapter')
             return
 
@@ -506,7 +654,7 @@ class TriagePage:
             self._current_image.save(str(edited_path), quality=95)
 
             # Get original path
-            original_path = str(self._image_files[self._current_index]) if self._image_files else ""
+            original_path = str(self._triage.image_files[self._triage.current_index]) if self._triage.image_files else ""
 
             # Import here to avoid circular imports
             from core.inspection_item import InspectionItem, ItemStatus
@@ -517,15 +665,15 @@ class TriagePage:
             item.photo_edited_path = str(edited_path)
             item.user_location = self._location_input.value
             item.user_description = self._description_input.value or ""
-            item.selected_code_folders = list(self._selected_folders)
-            item.selected_chapters = self._selected_chapters.copy()
+            item.selected_code_folders = list(self._triage.selected_folders)
+            item.selected_chapters = self._triage.selected_chapters.copy()
             item.status = ItemStatus.PENDING
 
             # Add to queue
             self._app_state.queue.add_item(item)
 
             # Move to next image automatically
-            if self._image_files and len(self._image_files) > 1:
+            if self._triage.image_files and len(self._triage.image_files) > 1:
                 self._next_image()
 
             # Clear text inputs but keep folder/chapter selections
@@ -540,11 +688,14 @@ class TriagePage:
 
     def _refresh_queue(self) -> None:
         """Refresh the queue display."""
+        if not self._queue_container:
+            return
+
         self._queue_container.clear()
 
         items = self._app_state.queue.get_all_items()
 
-        if hasattr(self, '_queue_count_label'):
+        if hasattr(self, '_queue_count_label') and self._queue_count_label:
             self._queue_count_label.text = f'{len(items)} items'
 
         with self._queue_container:

@@ -10,14 +10,23 @@ from google.genai import types
 from core.exceptions import AIConnectionError, AIRateLimitError, AIResponseParseError
 
 
+# Map string thinking levels to ThinkingLevel enum
+THINKING_LEVEL_MAP = {
+    "minimal": "MINIMAL",
+    "low": "LOW",
+    "medium": "MEDIUM",
+    "high": "HIGH",
+}
+
+
 class GeminiClient:
     """Client for Gemini AI API."""
 
     def __init__(
         self,
         api_key: str,
-        model_name: str = "gemini-3-flash-preview",
-        thinking_level: str = "high"
+        model_name: str = "gemini-2.5-flash",
+        thinking_level: str = "medium"
     ):
         self._api_key = api_key
         self._model_name = model_name
@@ -29,6 +38,35 @@ class GeminiClient:
         if not self._client:
             self._client = genai.Client(api_key=self._api_key)
         return self._client
+
+    def _get_thinking_config(self) -> Optional[types.ThinkingConfig]:
+        """Get thinking config based on model and level."""
+        # Only Gemini 2.5+ and 3+ models support thinking
+        model_lower = self._model_name.lower()
+
+        if "2.5" in model_lower:
+            # Gemini 2.5 uses thinking_budget
+            budget_map = {
+                "minimal": 256,
+                "low": 512,
+                "medium": 1024,
+                "high": 4096,
+            }
+            budget = budget_map.get(self._thinking_level.lower(), 1024)
+            return types.ThinkingConfig(thinking_budget=budget)
+
+        elif "3" in model_lower:
+            # Gemini 3 uses thinking_level enum
+            level_str = THINKING_LEVEL_MAP.get(self._thinking_level.lower(), "MEDIUM")
+            try:
+                level_enum = getattr(types.ThinkingLevel, level_str)
+                return types.ThinkingConfig(thinking_level=level_enum)
+            except AttributeError:
+                # Fallback if enum not available
+                return None
+
+        # Other models don't support thinking
+        return None
 
     def generate_with_image(
         self,
@@ -59,12 +97,16 @@ class GeminiClient:
             ]
 
             # Configure generation
-            config = types.GenerateContentConfig(
-                system_instruction=system_prompt,
-                thinking_config=types.ThinkingConfig(
-                    thinking_level=self._thinking_level
+            thinking_config = self._get_thinking_config()
+            if thinking_config:
+                config = types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    thinking_config=thinking_config
                 )
-            )
+            else:
+                config = types.GenerateContentConfig(
+                    system_instruction=system_prompt
+                )
 
             # Add cached content if available
             if cached_content_id:
@@ -93,12 +135,16 @@ class GeminiClient:
         try:
             client = self._get_client()
 
-            config = types.GenerateContentConfig(
-                system_instruction=system_prompt,
-                thinking_config=types.ThinkingConfig(
-                    thinking_level=self._thinking_level
+            thinking_config = self._get_thinking_config()
+            if thinking_config:
+                config = types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    thinking_config=thinking_config
                 )
-            )
+            else:
+                config = types.GenerateContentConfig(
+                    system_instruction=system_prompt
+                )
 
             response = client.models.generate_content(
                 model=self._model_name,

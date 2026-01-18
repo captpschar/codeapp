@@ -3,11 +3,22 @@ Global application state container (framework-agnostic).
 """
 
 from pathlib import Path
-from typing import Optional, List, Callable
+from typing import Optional, List, Callable, Set
+from dataclasses import dataclass, field
 from .inspection_queue import InspectionQueue
 from .state_machine import ItemStateMachine
 from .config_manager import ConfigManager, AppConfig, CodeFolder
 from .error_handler import ErrorHandler
+
+
+@dataclass
+class TriageState:
+    """State for triage page that persists across navigation."""
+    image_folder: Optional[Path] = None
+    image_files: List[Path] = field(default_factory=list)
+    current_index: int = 0
+    selected_folders: Set[str] = field(default_factory=set)
+    selected_chapters: List[str] = field(default_factory=list)
 
 
 class AppState:
@@ -33,6 +44,9 @@ class AppState:
 
         # Current selection
         self._current_item_id: Optional[str] = None
+
+        # Triage page state (persists across navigation)
+        self._triage_state = TriageState()
 
         # Callbacks for state changes (replaces Qt signals)
         self._queue_callbacks: List[Callable] = []
@@ -71,6 +85,11 @@ class AppState:
     def current_item_id(self) -> Optional[str]:
         """Get currently selected item ID."""
         return self._current_item_id
+
+    @property
+    def triage_state(self) -> TriageState:
+        """Get triage page state."""
+        return self._triage_state
 
     # Callback registration methods
     def on_queue_updated(self, callback: Callable) -> None:
