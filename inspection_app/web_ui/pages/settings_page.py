@@ -2,7 +2,7 @@
 Settings page for configuring the application.
 """
 
-from nicegui import ui, events, run
+from nicegui import ui, run
 from pathlib import Path
 from typing import Optional, Dict
 from web_ui.app import get_app_state, notify_success, notify_error
@@ -13,15 +13,13 @@ def _select_folder() -> Optional[str]:
     import tkinter as tk
     from tkinter import filedialog
 
-    # Create hidden root window
     root = tk.Tk()
     root.withdraw()
     root.attributes('-topmost', True)
+    root.focus_force()
 
-    # Open folder dialog
     folder_path = filedialog.askdirectory(
-        title="Select Folder",
-        mustexist=False
+        title="Select Folder"
     )
 
     root.destroy()
@@ -33,12 +31,11 @@ def _select_file(filetypes: list = None) -> Optional[str]:
     import tkinter as tk
     from tkinter import filedialog
 
-    # Create hidden root window
     root = tk.Tk()
     root.withdraw()
     root.attributes('-topmost', True)
+    root.focus_force()
 
-    # Open file dialog
     file_path = filedialog.askopenfilename(
         title="Select File",
         filetypes=filetypes or [("All files", "*.*")]
@@ -57,7 +54,7 @@ class SettingsPage:
         self._credentials_path_input = None
         self._output_dir_input = None
         self._folders_container = None
-        self._folder_inputs: Dict[str, tuple] = {}  # name -> (name_input, path_input)
+        self._folder_inputs: Dict[str, tuple] = {}
 
     def render(self) -> None:
         """Render the settings page."""
@@ -78,50 +75,44 @@ class SettingsPage:
                         password_toggle_button=True
                     ).classes('w-full')
 
-                    with ui.row().classes('w-full items-end gap-2'):
+                    ui.label('Google Docs Credentials File (.json)').classes('text-sm font-medium mt-2')
+                    with ui.row().classes('w-full items-center gap-2'):
                         self._credentials_path_input = ui.input(
-                            label='Google Docs Credentials File (.json)',
+                            placeholder='Path to credentials.json',
                             value=config.google_docs_credentials_path
                         ).classes('flex-grow')
 
-                        ui.button(
-                            'Browse...',
-                            icon='folder_open',
-                            on_click=self._browse_credentials_file
-                        ).props('outline')
+                        ui.button('Browse...', on_click=self._browse_credentials_file).props('flat')
 
             # Output Directory
             with ui.card().classes('w-full'):
                 ui.label('Output Directory').classes('text-lg font-bold mb-4')
 
-                with ui.row().classes('w-full items-end gap-2'):
+                ui.label('Output Directory Path').classes('text-sm font-medium')
+                with ui.row().classes('w-full items-center gap-2'):
                     self._output_dir_input = ui.input(
-                        label='Output Directory Path',
+                        placeholder='Path to output folder',
                         value=config.output_directory
                     ).classes('flex-grow')
 
-                    ui.button(
-                        'Browse...',
-                        icon='folder_open',
-                        on_click=self._browse_output_dir
-                    ).props('outline')
+                    ui.button('Browse...', on_click=self._browse_output_dir).props('flat')
 
                 ui.label(
                     'This is where edited images, snapshots, and queue data will be saved.'
-                ).classes('text-sm text-gray-500')
+                ).classes('text-sm text-gray-500 mt-2')
 
             # Code Folders
             with ui.card().classes('w-full'):
                 with ui.row().classes('w-full items-center mb-4'):
                     ui.label('Code Book Folders').classes('text-lg font-bold')
                     ui.space()
-                    ui.button('Add Folder', icon='add', on_click=self._add_folder).props('flat')
+                    ui.button('+ Add Folder', on_click=self._add_folder).props('flat color=primary')
 
                 ui.label(
                     'Add folders containing your PDF code books. Give each a descriptive name.'
                 ).classes('text-sm text-gray-500 mb-4')
 
-                self._folders_container = ui.column().classes('w-full gap-2')
+                self._folders_container = ui.column().classes('w-full gap-3')
                 self._render_folders()
 
             # AI Settings
@@ -161,7 +152,7 @@ class SettingsPage:
 
             # Save button
             with ui.row().classes('w-full justify-end gap-2'):
-                ui.button('Save Settings', icon='save', on_click=self._save_settings)
+                ui.button('Save Settings', icon='save', on_click=self._save_settings).props('color=primary')
 
     def _render_folders(self) -> None:
         """Render the code folders list."""
@@ -170,7 +161,7 @@ class SettingsPage:
 
         with self._folders_container:
             if not self._app_state.config.code_folders:
-                ui.label('No code folders configured. Click "Add Folder" to add one.').classes('text-gray-400 py-2')
+                ui.label('No code folders configured. Click "+ Add Folder" to add one.').classes('text-gray-400 py-4')
                 return
 
             for folder in self._app_state.config.code_folders:
@@ -181,44 +172,39 @@ class SettingsPage:
         exists = Path(path).exists() if path else False
         pdf_count = len(list(Path(path).glob('*.pdf'))) if exists else 0
 
-        with ui.card().classes('w-full'):
-            with ui.row().classes('w-full items-center gap-2'):
-                # Status indicator
+        with ui.card().classes('w-full p-3'):
+            # First row: status + name
+            with ui.row().classes('w-full items-center gap-2 mb-2'):
                 if exists:
-                    ui.icon('check_circle').classes('text-green-500').tooltip('Folder exists')
+                    ui.icon('check_circle', color='green').tooltip('Folder exists')
+                    if pdf_count > 0:
+                        ui.label(f'{pdf_count} PDFs').classes('text-sm text-green-600')
                 else:
-                    ui.icon('error').classes('text-red-500').tooltip('Folder not found')
+                    ui.icon('error', color='red').tooltip('Folder not found')
+                    ui.label('Not found').classes('text-sm text-red-600')
 
-                # Name input
-                name_input = ui.input(
-                    label='Name',
-                    value=name
-                ).classes('w-48')
+                ui.space()
 
-                # Path input
+                ui.button('Remove', on_click=lambda n=name: self._remove_folder(n)).props('flat color=negative size=sm')
+
+            # Name input
+            name_input = ui.input(
+                label='Folder Name',
+                value=name
+            ).classes('w-full mb-2')
+
+            # Path input with browse button
+            ui.label('Folder Path').classes('text-sm font-medium')
+            with ui.row().classes('w-full items-center gap-2'):
                 path_input = ui.input(
-                    label='Path',
+                    placeholder='Click Browse to select folder...',
                     value=path
                 ).classes('flex-grow')
 
-                # Store references for saving
-                self._folder_inputs[name] = (name_input, path_input)
+                ui.button('Browse...', on_click=lambda n=name: self._browse_folder_path(n)).props('flat')
 
-                # Browse button
-                ui.button(
-                    icon='folder_open',
-                    on_click=lambda n=name: self._browse_folder_path(n)
-                ).props('flat').tooltip('Browse for folder')
-
-                # PDF count badge
-                if exists:
-                    ui.badge(f'{pdf_count} PDFs', color='blue').tooltip(f'{pdf_count} PDF files found')
-
-                # Remove button
-                ui.button(
-                    icon='delete',
-                    on_click=lambda n=name: self._remove_folder(n)
-                ).props('flat color=negative').tooltip('Remove folder')
+            # Store references for saving
+            self._folder_inputs[name] = (name_input, path_input)
 
     async def _browse_credentials_file(self) -> None:
         """Open file browser for credentials file."""
@@ -245,9 +231,9 @@ class SettingsPage:
             path_input.value = folder_path
 
             # Update the config immediately
-            old_name = name_input.value
-            self._app_state.config.remove_code_folder(old_name)
-            self._app_state.config.add_code_folder(old_name, folder_path)
+            current_name = name_input.value
+            self._app_state.config.remove_code_folder(folder_name)
+            self._app_state.config.add_code_folder(current_name, folder_path)
 
             # Refresh to show PDF count
             self._render_folders()
@@ -255,7 +241,6 @@ class SettingsPage:
 
     def _add_folder(self) -> None:
         """Add a new code folder."""
-        # Generate a unique name
         existing_names = self._app_state.config.list_code_folder_names()
         new_name = "New Folder"
         counter = 1
