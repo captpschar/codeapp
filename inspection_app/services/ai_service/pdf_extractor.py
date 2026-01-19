@@ -7,93 +7,200 @@ from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 import fitz  # PyMuPDF
 
+# Gemini 2.5 Flash has ~1M token context (~4M chars), but we want to leave room for:
+# - System prompt
+# - User prompt
+# - Image data
+# - Response generation
+# So we cap at 800k chars to be safe
+ABSOLUTE_MAX_CHARS = 800000
 
-def extract_pdf_text(pdf_path: str, max_pages: int = 200) -> Tuple[str, int, int]:
+
+def get_pdf_text_size(pdf_path: str) -> Tuple[int, int]:
     """
-    Extract all text from a PDF file.
-
-    Args:
-        pdf_path: Path to PDF file
-        max_pages: Maximum pages to extract
+    Quickly scan a PDF to get its text size without full extraction.
 
     Returns:
-        Tuple of (extracted text, pages extracted, total pages)
+        Tuple of (estimated_chars, page_count)
     """
     path = Path(pdf_path)
     if not path.exists():
-        return "", 0, 0
+        return 0, 0
 
     try:
         doc = fitz.open(pdf_path)
-        total_pages = len(doc)
+        total_chars = 0
+        page_count = len(doc)
+
+        # Extract text from all pages to get accurate count
+        for page in doc:
+            text = page.get_text()
+            total_chars += len(text)
+
+        doc.close()
+        return total_chars, page_count
+
+    except Exception as e:
+        print(f"[PDF Extract] Error scanning {pdf_path}: {e}")
+        return 0, 0
+
+
+def scan_pdfs_for_sizing(pdf_paths: List[str]) -> Dict:
+    """
+    Scan all PDFs to determine total size and plan extraction.
+
+    Returns:
+        Dict with sizing info and extraction plan
+    """
+    results = {
+        'pdfs': [],
+        'total_chars': 0,
+        'total_pages': 0,
+        'fits_in_context': True,
+        'needs_truncation': False
+    }
+
+    for pdf_path in pdf_paths:
+        path = Path(pdf_path)
+        if not path.exists():
+            continue
+
+        chars, pages = get_pdf_text_size(pdf_path)
+        results['pdfs'].append({
+            'path': pdf_path,
+            'name': path.name,
+            'chars': chars,
+            'pages': pages
+        })
+        results['total_chars'] += chars
+        results['total_pages'] += pages
+
+    # Check if everything fits
+    if results['total_chars'] > ABSOLUTE_MAX_CHARS:
+        results['fits_in_context'] = False
+        results['needs_truncation'] = True
+
+    return results
+
+
+def extract_pdf_text_full(pdf_path: str) -> str:
+    """
+    Extract ALL text from a PDF file - no limits.
+
+    Args:
+        pdf_path: Path to PDF file
+
+    Returns:
+        Complete extracted text content
+    """
+    path = Path(pdf_path)
+    if not path.exists():
+        return ""
+
+    try:
+        doc = fitz.open(pdf_path)
         text_parts = []
 
-        pages_to_extract = min(total_pages, max_pages)
-        for page_num in range(pages_to_extract):
+        for page_num in range(len(doc)):
             page = doc[page_num]
             text = page.get_text()
             if text.strip():
                 text_parts.append(f"--- Page {page_num + 1} ---\n{text}")
 
         doc.close()
-
-        extracted_text = "\n\n".join(text_parts)
-        return extracted_text, pages_to_extract, total_pages
+        return "\n\n".join(text_parts)
 
     except Exception as e:
         print(f"[PDF Extract] Error extracting {pdf_path}: {e}")
-        return "", 0, 0
+        return ""
 
 
-def extract_multiple_pdfs(pdf_paths: List[str], max_total_chars: int = 500000) -> str:
+def extract_multiple_pdfs_smart(pdf_paths: List[str]) -> str:
     """
-    Extract text from multiple PDFs, combining into one context.
+    Smart extraction that scans PDFs first and adjusts to fit all content.
 
-    Gemini 2.5 has 1M token context, so we can be generous with text.
+    1. Scans all PDFs to determine total size
+    2. If total fits in context, extracts everything
+    3. If too large, extracts proportionally from each PDF
 
     Args:
         pdf_paths: List of PDF file paths
-        max_total_chars: Maximum total characters (default 500k ~ 125k tokens)
 
     Returns:
         Combined text from all PDFs
     """
+    if not pdf_paths:
+        return ""
+
+    # First pass: scan to determine sizes
+    print(f"[PDF Extract] Scanning {len(pdf_paths)} PDF(s) for sizing...")
+    sizing = scan_pdfs_for_sizing(pdf_paths)
+
+    print(f"[PDF Extract] Total content: {sizing['total_chars']:,} chars across {sizing['total_pages']} pages")
+
+    if sizing['total_chars'] == 0:
+        print("[PDF Extract] WARNING: No text found in PDFs")
+        return ""
+
+    # Determine extraction strategy
     all_text = []
-    total_chars = 0
 
-    for pdf_path in pdf_paths:
-        path = Path(pdf_path)
-        if not path.exists():
-            print(f"[PDF Extract] File not found: {pdf_path}")
-            continue
+    if sizing['fits_in_context']:
+        # Everything fits! Extract it all
+        print(f"[PDF Extract] All content fits in context - extracting full documents")
 
-        text, pages_extracted, total_pages = extract_pdf_text(pdf_path)
+        for pdf_info in sizing['pdfs']:
+            text = extract_pdf_text_full(pdf_info['path'])
+            if text:
+                header = f"\n{'='*60}\nDOCUMENT: {pdf_info['name']} ({pdf_info['pages']} pages)\n{'='*60}\n"
+                all_text.append(header + text)
+                print(f"[PDF Extract] ✓ {pdf_info['name']}: {len(text):,} chars (complete)")
 
-        if not text:
-            print(f"[PDF Extract] No text extracted from: {path.name}")
-            continue
+    else:
+        # Need to be smart about extraction
+        print(f"[PDF Extract] WARNING: Total content ({sizing['total_chars']:,}) exceeds limit ({ABSOLUTE_MAX_CHARS:,})")
+        print(f"[PDF Extract] Extracting proportionally from each PDF...")
 
-        print(f"[PDF Extract] {path.name}: extracted {pages_extracted}/{total_pages} pages, {len(text)} chars")
+        # Calculate proportion for each PDF
+        remaining_budget = ABSOLUTE_MAX_CHARS
 
-        header = f"\n{'='*60}\nDOCUMENT: {path.name}\n{'='*60}\n"
+        for pdf_info in sizing['pdfs']:
+            # Give each PDF a proportional share of the budget
+            proportion = pdf_info['chars'] / sizing['total_chars']
+            char_budget = int(ABSOLUTE_MAX_CHARS * proportion)
 
-        # Check if we need to truncate
-        remaining = max_total_chars - total_chars
-        if len(text) + len(header) > remaining:
-            if remaining > 1000:  # Only include if we have meaningful space left
-                text = text[:remaining - len(header) - 50] + "\n\n[... DOCUMENT TRUNCATED - content continues beyond this point ...]"
-                print(f"[PDF Extract] WARNING: Truncated {path.name} to fit context limit")
-            else:
-                print(f"[PDF Extract] WARNING: Skipping {path.name} - context limit reached")
-                continue
+            text = extract_pdf_text_full(pdf_info['path'])
 
-        all_text.append(header + text)
-        total_chars += len(header) + len(text)
+            if text:
+                header = f"\n{'='*60}\nDOCUMENT: {pdf_info['name']} ({pdf_info['pages']} pages)\n{'='*60}\n"
 
-    if total_chars >= max_total_chars * 0.9:
-        print(f"[PDF Extract] WARNING: Near context limit ({total_chars}/{max_total_chars} chars)")
+                if len(text) > char_budget:
+                    # Truncate this PDF's content
+                    text = text[:char_budget] + f"\n\n[... TRUNCATED - showing {char_budget:,} of {len(text):,} chars ...]"
+                    print(f"[PDF Extract] ⚠ {pdf_info['name']}: truncated to {char_budget:,} chars")
+                else:
+                    print(f"[PDF Extract] ✓ {pdf_info['name']}: {len(text):,} chars (complete)")
 
-    return "\n".join(all_text)
+                all_text.append(header + text)
+
+    result = "\n".join(all_text)
+    print(f"[PDF Extract] Final extraction: {len(result):,} chars")
+    return result
+
+
+# Keep the old function name for backwards compatibility
+def extract_multiple_pdfs(pdf_paths: List[str], max_total_chars: int = None) -> str:
+    """
+    Extract text from multiple PDFs using smart sizing.
+
+    Args:
+        pdf_paths: List of PDF file paths
+        max_total_chars: Ignored - uses smart sizing instead
+
+    Returns:
+        Combined text from all PDFs
+    """
+    return extract_multiple_pdfs_smart(pdf_paths)
 
 
 def find_reference_in_pdf(pdf_path: str, reference: str) -> bool:
@@ -142,23 +249,12 @@ def get_pdf_info(pdf_path: str) -> Dict:
         return {"exists": False}
 
     try:
-        doc = fitz.open(pdf_path)
-        info = {
+        chars, pages = get_pdf_text_size(pdf_path)
+        return {
             "exists": True,
-            "pages": len(doc),
+            "pages": pages,
+            "chars": chars,
             "filename": path.name,
         }
-
-        # Estimate text size
-        sample_text = ""
-        for i in range(min(3, len(doc))):
-            sample_text += doc[i].get_text()
-
-        avg_chars_per_page = len(sample_text) / min(3, len(doc)) if len(doc) > 0 else 0
-        info["estimated_chars"] = int(avg_chars_per_page * len(doc))
-
-        doc.close()
-        return info
-
     except Exception as e:
         return {"exists": True, "error": str(e)}
