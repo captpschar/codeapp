@@ -161,14 +161,14 @@ const Review = {
             } else {
                 list.innerHTML = data.items.map(item => `
                     <div class="queue-item ${this.currentItem?.id === item.id ? 'active' : ''}"
-                         onclick="Review.selectItem('${item.id}')">
+                         onclick="Review.selectItem('${item.id}', this)" data-id="${item.id}">
                         <div class="d-flex justify-content-between align-items-start">
                             <div>
                                 <div class="fw-medium small">${item.filename}</div>
                                 <div class="text-muted small">${item.location || 'No location'}</div>
                             </div>
-                            <span class="badge bg-${item.approved ? 'success' : 'warning'}">
-                                ${item.approved ? 'Approved' : 'Pending'}
+                            <span class="badge bg-${this.statusColor(item.status)}">
+                                ${this.statusLabel(item.status)}
                             </span>
                         </div>
                     </div>
@@ -206,14 +206,14 @@ const Review = {
         }
     },
 
-    async selectItem(itemId) {
+    async selectItem(itemId, element) {
         try {
             const data = await App.api(`/api/review/item/${itemId}`);
             this.currentItem = data;
 
             // Highlight in list
             document.querySelectorAll('.queue-item').forEach(el => el.classList.remove('active'));
-            event.currentTarget?.classList.add('active');
+            if (element) element.classList.add('active');
 
             // Update photo
             if (data.image) {
@@ -295,6 +295,28 @@ const Review = {
 
     confidenceColor(confidence) {
         return { 'high': 'success', 'medium': 'warning', 'low': 'danger' }[confidence?.toLowerCase()] || 'secondary';
+    },
+
+    statusColor(status) {
+        return {
+            'pending': 'secondary',
+            'processing': 'info',
+            'review_ready': 'warning',
+            'approved': 'success',
+            'exported': 'primary',
+            'error': 'danger'
+        }[status] || 'secondary';
+    },
+
+    statusLabel(status) {
+        return {
+            'pending': 'Pending',
+            'processing': 'Processing',
+            'review_ready': 'Review Ready',
+            'approved': 'Approved',
+            'exported': 'Exported',
+            'error': 'Error'
+        }[status] || status;
     },
 
     async loadPdf(pdfPath) {
