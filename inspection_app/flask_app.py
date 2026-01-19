@@ -611,12 +611,12 @@ def _run_processing(items: List[InspectionItem]):
                                     pdf_paths.append(str(pdf_path))
                                 break
 
-                # Extract PDF text
+                # Extract PDF text - use generous limits for full document coverage
                 pdf_content = ""
                 if pdf_paths:
                     print(f"[Processing] Extracting text from {len(pdf_paths)} PDF(s)...")
-                    pdf_content = extract_multiple_pdfs(pdf_paths, max_total_chars=80000)
-                    print(f"[Processing] Extracted {len(pdf_content)} characters of PDF text")
+                    pdf_content = extract_multiple_pdfs(pdf_paths)  # Uses default 500k char limit
+                    print(f"[Processing] Total extracted: {len(pdf_content)} characters")
                 else:
                     print("[Processing] WARNING: No PDFs selected for this item!")
 
