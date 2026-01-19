@@ -45,6 +45,13 @@
                     <i class="bi bi-exclamation-triangle me-2"></i>
                     <span id="error-message"></span>
                 </div>
+
+                <!-- Review Link (shown when items ready) -->
+                <div id="review-link" class="mt-3" style="display: none;">
+                    <a href="/review" class="btn btn-success w-100">
+                        <i class="bi bi-check-circle me-2"></i>Go to Review (<span id="review-count">0</span> items ready)
+                    </a>
+                </div>
             </div>
         </div>
 
@@ -114,6 +121,7 @@
 <script>
 const Processing = {
     pollInterval: null,
+    wasRunning: false,  // Track previous state to detect completion
 
     async init() {
         await this.refresh();
@@ -148,6 +156,19 @@ const Processing = {
             document.getElementById('start-btn').style.display = data.running ? 'none' : 'block';
             document.getElementById('stop-btn').style.display = data.running ? 'block' : 'none';
 
+            // Detect completion: was running, now stopped
+            if (this.wasRunning && !data.running) {
+                // Processing just completed - refresh items and show notification
+                await this.updateItems();
+                if (data.error) {
+                    App.toast('Processing completed with errors', 'warning');
+                } else {
+                    App.toast('Processing complete! Items ready for review.', 'success');
+                }
+                App.updateQueueCount();
+            }
+            this.wasRunning = data.running;
+
             // Update progress
             const progressSection = document.getElementById('progress-section');
             if (data.running) {
@@ -156,6 +177,9 @@ const Processing = {
                 const pct = data.total > 0 ? (data.progress / data.total * 100) : 0;
                 document.getElementById('progress-bar').style.width = pct + '%';
                 document.getElementById('current-item').textContent = `Processing: ${data.current_item || '...'}`;
+
+                // Also refresh items while running to show status changes
+                await this.updateItems();
             } else {
                 progressSection.style.display = 'none';
             }
@@ -192,6 +216,16 @@ const Processing = {
             document.getElementById('stat-approved').textContent = stats.approved;
             document.getElementById('stat-error').textContent = stats.error;
 
+            // Show review link if items are ready
+            const reviewLink = document.getElementById('review-link');
+            const reviewReady = stats.review_ready + stats.approved;
+            if (reviewReady > 0) {
+                reviewLink.style.display = 'block';
+                document.getElementById('review-count').textContent = reviewReady;
+            } else {
+                reviewLink.style.display = 'none';
+            }
+
             // Update table
             const tbody = document.getElementById('items-table');
             if (data.items.length === 0) {
@@ -226,6 +260,7 @@ const Processing = {
         try {
             await App.api('/api/processing/start', { method: 'POST' });
             App.toast('Processing started', 'success');
+            this.wasRunning = true;  // Mark as running
             this.refresh();
         } catch (e) {
             App.toast('Failed to start: ' + e.message, 'error');

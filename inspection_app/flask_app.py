@@ -798,11 +798,12 @@ def list_pdfs():
 
 @app.route('/api/pdf/render', methods=['POST'])
 def render_pdf_page():
-    """Render a PDF page as image."""
+    """Render a PDF page as image with optional highlights."""
     data = request.json
     pdf_path = data.get('pdf_path')
     page_num = data.get('page_num', 0)
     dpi = data.get('dpi', 150)
+    highlights = data.get('highlights', [])  # List of [x0, y0, x1, y1] rectangles
 
     if not pdf_path or not Path(pdf_path).exists():
         return jsonify({'error': 'PDF not found'}), 404
@@ -815,6 +816,16 @@ def render_pdf_page():
             page_num = len(doc) - 1
 
         page = doc[page_num]
+
+        # Draw highlights on the page (yellow semi-transparent)
+        for rect in highlights:
+            if len(rect) == 4:
+                highlight_rect = fitz.Rect(rect[0], rect[1], rect[2], rect[3])
+                # Add yellow highlight annotation
+                highlight = page.add_highlight_annot(highlight_rect)
+                highlight.set_colors(stroke=(1, 1, 0))  # Yellow
+                highlight.update()
+
         mat = fitz.Matrix(dpi / 72, dpi / 72)
         pix = page.get_pixmap(matrix=mat)
 

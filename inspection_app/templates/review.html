@@ -143,6 +143,7 @@ const Review = {
     currentPage: 0,
     totalPages: 0,
     items: [],
+    searchResults: [],  // Store search results with rects for highlighting
 
     async init() {
         await this.loadItems();
@@ -276,6 +277,11 @@ const Review = {
                         if (opt.value.includes(parts[1])) {
                             select.value = opt.value;
                             await this.loadPdf(opt.value);
+
+                            // Auto-search if we have an AI reference
+                            if (data.ai_reference) {
+                                await this.searchPdf();
+                            }
                             break;
                         }
                     }
@@ -296,6 +302,10 @@ const Review = {
 
         this.currentPdf = pdfPath;
         this.currentPage = 0;
+        this.searchResults = [];  // Clear highlights when loading new PDF
+
+        // Clear search results display
+        document.getElementById('search-results').innerHTML = '';
 
         await this.renderPdfPage();
     },
@@ -304,11 +314,17 @@ const Review = {
         if (!this.currentPdf) return;
 
         try {
+            // Get highlights for current page from search results
+            const highlights = this.searchResults
+                .filter(r => r.page === this.currentPage)
+                .map(r => r.rect);
+
             const data = await App.api('/api/pdf/render', {
                 method: 'POST',
                 body: {
                     pdf_path: this.currentPdf,
-                    page_num: this.currentPage
+                    page_num: this.currentPage,
+                    highlights: highlights
                 }
             });
 
@@ -320,7 +336,12 @@ const Review = {
             this.currentPage = data.page_num;
             this.totalPages = data.total_pages;
 
-            document.getElementById('pdf-page-info').textContent = `Page ${this.currentPage + 1} / ${this.totalPages}`;
+            // Show page info with highlight count
+            let pageInfo = `Page ${this.currentPage + 1} / ${this.totalPages}`;
+            if (highlights.length > 0) {
+                pageInfo += ` (${highlights.length} match${highlights.length > 1 ? 'es' : ''})`;
+            }
+            document.getElementById('pdf-page-info').textContent = pageInfo;
 
         } catch (e) {
             App.toast('Failed to render PDF: ' + e.message, 'error');
@@ -344,6 +365,7 @@ const Review = {
         try {
             // Load PDF if not already
             if (this.currentPdf !== pdfPath) {
+                this.searchResults = [];  // Clear previous search results
                 await this.loadPdf(pdfPath);
             }
 
@@ -354,7 +376,12 @@ const Review = {
 
             const results = document.getElementById('search-results');
             if (data.found) {
-                results.innerHTML = `<span class="text-success"><i class="bi bi-check-circle"></i> Found ${data.results.length} matches</span>`;
+                // Store results for highlighting
+                this.searchResults = data.results;
+
+                // Count pages with matches
+                const pageCount = new Set(data.results.map(r => r.page)).size;
+                results.innerHTML = `<span class="text-success"><i class="bi bi-check-circle"></i> Found ${data.results.length} matches on ${pageCount} page${pageCount > 1 ? 's' : ''}</span>`;
 
                 // Go to first result
                 if (data.first_page !== null) {
@@ -362,6 +389,7 @@ const Review = {
                     await this.renderPdfPage();
                 }
             } else {
+                this.searchResults = [];
                 results.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle"></i> Not found</span>`;
             }
 

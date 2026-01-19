@@ -70,12 +70,12 @@
                 <div class="p-3 border-top">
                     <div class="row g-3">
                         <div class="col-6">
-                            <label class="form-label small">Brightness</label>
-                            <input type="range" class="form-range" id="brightness-slider" min="0.5" max="2" step="0.1" value="1" onchange="Triage.updateEdits()">
+                            <label class="form-label small">Brightness <span id="brightness-val">1.0</span></label>
+                            <input type="range" class="form-range" id="brightness-slider" min="0.5" max="2" step="0.1" value="1" oninput="Triage.previewEdits()" onchange="Triage.updateEdits()">
                         </div>
                         <div class="col-6">
-                            <label class="form-label small">Contrast</label>
-                            <input type="range" class="form-range" id="contrast-slider" min="0.5" max="2" step="0.1" value="1" onchange="Triage.updateEdits()">
+                            <label class="form-label small">Contrast <span id="contrast-val">1.0</span></label>
+                            <input type="range" class="form-range" id="contrast-slider" min="0.5" max="2" step="0.1" value="1" oninput="Triage.previewEdits()" onchange="Triage.updateEdits()">
                         </div>
                     </div>
                 </div>
@@ -93,11 +93,11 @@
             <div class="card-body">
                 <div class="mb-3">
                     <label class="form-label">Location</label>
-                    <input type="text" class="form-control" id="location-input" placeholder="e.g., Building A, Floor 2, Room 201">
+                    <input type="text" class="form-control" id="location-input" placeholder="e.g., Building A, Floor 2, Room 201" oninput="Triage.autoSave()">
                 </div>
                 <div class="mb-3">
                     <label class="form-label">Description</label>
-                    <textarea class="form-control" id="description-input" rows="3" placeholder="Describe the issue or finding..."></textarea>
+                    <textarea class="form-control" id="description-input" rows="3" placeholder="Describe the issue or finding..." oninput="Triage.autoSave()"></textarea>
                 </div>
 
                 <!-- Code Folders -->
@@ -259,6 +259,7 @@ const Triage = {
     selectedFiles: [],
     currentFolderPath: '',
     currentFilePath: '',
+    autoSaveTimeout: null,
 
     async init() {
         // Load existing triage state
@@ -282,9 +283,52 @@ const Triage = {
             }
 
             this.refreshQueue();
+
+            // Restore form data from localStorage
+            this.restoreFormData();
         } catch (e) {
             console.error('Failed to load triage state:', e);
         }
+    },
+
+    // ========== AUTO-SAVE ==========
+    autoSave() {
+        // Debounced auto-save to localStorage
+        clearTimeout(this.autoSaveTimeout);
+        this.autoSaveTimeout = setTimeout(() => {
+            const data = {
+                location: document.getElementById('location-input').value,
+                description: document.getElementById('description-input').value,
+                selectedFolders: this.selectedFolders,
+                selectedChapters: this.selectedChapters,
+                timestamp: Date.now()
+            };
+            localStorage.setItem('triage_form_data', JSON.stringify(data));
+        }, 300);
+    },
+
+    restoreFormData() {
+        try {
+            const saved = localStorage.getItem('triage_form_data');
+            if (saved) {
+                const data = JSON.parse(saved);
+                // Only restore if saved within last 24 hours
+                if (data.timestamp && Date.now() - data.timestamp < 86400000) {
+                    if (data.location) {
+                        document.getElementById('location-input').value = data.location;
+                    }
+                    if (data.description) {
+                        document.getElementById('description-input').value = data.description;
+                    }
+                }
+            }
+        } catch (e) {
+            console.error('Failed to restore form data:', e);
+        }
+    },
+
+    clearFormData() {
+        localStorage.removeItem('triage_form_data');
     },
 
     // ========== FOLDER BROWSER ==========
@@ -570,9 +614,26 @@ const Triage = {
         }
     },
 
+    // CSS filter preview for instant feedback (no API call)
+    previewEdits() {
+        const brightness = parseFloat(document.getElementById('brightness-slider').value);
+        const contrast = parseFloat(document.getElementById('contrast-slider').value);
+
+        // Update value displays
+        document.getElementById('brightness-val').textContent = brightness.toFixed(1);
+        document.getElementById('contrast-val').textContent = contrast.toFixed(1);
+
+        // Apply CSS filter for instant preview
+        const img = document.getElementById('main-image');
+        img.style.filter = `brightness(${brightness}) contrast(${contrast})`;
+    },
+
     updateEdits() {
         this.edits.brightness = parseFloat(document.getElementById('brightness-slider').value);
         this.edits.contrast = parseFloat(document.getElementById('contrast-slider').value);
+
+        // Clear CSS filter, apply server-side for final result
+        document.getElementById('main-image').style.filter = '';
         this.applyEdits();
     },
 
@@ -598,6 +659,11 @@ const Triage = {
         this.edits = { rotation: 0, brightness: 1, contrast: 1, crop: null };
         document.getElementById('brightness-slider').value = 1;
         document.getElementById('contrast-slider').value = 1;
+        document.getElementById('brightness-val').textContent = '1.0';
+        document.getElementById('contrast-val').textContent = '1.0';
+
+        // Clear CSS filter
+        document.getElementById('main-image').style.filter = '';
 
         if (this.cropper) {
             this.cropper.destroy();
@@ -620,6 +686,8 @@ const Triage = {
             method: 'POST',
             body: { selected_folders: this.selectedFolders }
         });
+
+        this.autoSave();
     },
 
     async showChapterSelector() {
@@ -670,6 +738,7 @@ const Triage = {
         });
 
         this.displaySelectedChapters();
+        this.autoSave();
         bootstrap.Modal.getInstance(document.getElementById('chapterSelectorModal')).hide();
     },
 
@@ -716,6 +785,7 @@ const Triage = {
 
             document.getElementById('location-input').value = '';
             document.getElementById('description-input').value = '';
+            this.clearFormData();  // Clear localStorage
             this.resetEdits();
 
             this.navigate('next');
