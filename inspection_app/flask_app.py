@@ -572,6 +572,7 @@ def _run_processing(items: List[InspectionItem]):
         from services.ai_service.gemini_client import GeminiClient
         from services.ai_service.prompt_templates import SYSTEM_PROMPT_CODE_ANALYSIS, build_analysis_prompt
         from services.ai_service.response_parser import parse_analysis_response
+        from services.ai_service.pdf_extractor import extract_multiple_pdfs, find_reference_in_multiple_pdfs
 
         print(f"[Processing] Creating Gemini client with model: {state.config.ai_settings.model_name}")
         client = GeminiClient(
@@ -595,11 +596,36 @@ def _run_processing(items: List[InspectionItem]):
                 item.status = ItemStatus.PROCESSING
                 state.queue.update_item(item)
 
-                # Build prompts
+                # Get PDF paths from selected chapters
+                pdf_paths = []
+                for chapter in item.selected_chapters:
+                    # Format is "folder_name:chapter.pdf"
+                    parts = chapter.split(':')
+                    if len(parts) == 2:
+                        folder_name, chapter_file = parts
+                        # Find the folder path
+                        for folder in state.config.code_folders:
+                            if folder.name == folder_name:
+                                pdf_path = Path(folder.path) / chapter_file
+                                if pdf_path.exists():
+                                    pdf_paths.append(str(pdf_path))
+                                break
+
+                # Extract PDF text
+                pdf_content = ""
+                if pdf_paths:
+                    print(f"[Processing] Extracting text from {len(pdf_paths)} PDF(s)...")
+                    pdf_content = extract_multiple_pdfs(pdf_paths, max_total_chars=80000)
+                    print(f"[Processing] Extracted {len(pdf_content)} characters of PDF text")
+                else:
+                    print("[Processing] WARNING: No PDFs selected for this item!")
+
+                # Build prompts with PDF content
                 system_prompt = SYSTEM_PROMPT_CODE_ANALYSIS
                 user_prompt = build_analysis_prompt(
                     description=item.user_description or '',
-                    location=item.user_location or ''
+                    location=item.user_location or '',
+                    pdf_content=pdf_content
                 )
 
                 # Call AI
@@ -610,6 +636,18 @@ def _run_processing(items: List[InspectionItem]):
 
                 # Parse response
                 parsed = parse_analysis_response(response)
+
+                # Verify reference exists in PDF (if we have PDFs and a reference)
+                if pdf_paths and parsed.reference and parsed.reference != "NOT_FOUND":
+                    found_in = find_reference_in_multiple_pdfs(pdf_paths, parsed.reference)
+                    if not found_in:
+                        print(f"[Processing] WARNING: Reference '{parsed.reference}' not verified in PDFs")
+                        # Mark as lower confidence since we couldn't verify
+                        from core.inspection_item import ConfidenceLevel
+                        parsed.confidence = ConfidenceLevel.LOW
+                        parsed.reasoning = f"[UNVERIFIED] {parsed.reasoning}"
+                    else:
+                        print(f"[Processing] Verified: '{parsed.reference}' found in {Path(found_in).name}")
 
                 # Update item
                 item.ai_code_reference = parsed.reference

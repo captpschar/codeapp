@@ -45,15 +45,15 @@
                 <div class="row g-3">
                     <div class="col-12">
                         <label class="form-label small fw-bold">Location</label>
-                        <input type="text" class="form-control" id="edit-location" placeholder="Location..." onchange="Review.markDirty()">
+                        <input type="text" class="form-control" id="edit-location" placeholder="Location..." oninput="Review.autoSave()">
                     </div>
                     <div class="col-12">
                         <label class="form-label small fw-bold">Description</label>
-                        <textarea class="form-control" id="edit-description" rows="2" placeholder="Description..." onchange="Review.markDirty()"></textarea>
+                        <textarea class="form-control" id="edit-description" rows="2" placeholder="Description..." oninput="Review.autoSave()"></textarea>
                     </div>
                     <div class="col-12">
                         <label class="form-label small fw-bold">Analysis <span class="text-muted fw-normal">(reviewer notes)</span></label>
-                        <textarea class="form-control" id="edit-analysis" rows="3" placeholder="Your analysis and notes..." onchange="Review.markDirty()"></textarea>
+                        <textarea class="form-control" id="edit-analysis" rows="3" placeholder="Your analysis and notes..." oninput="Review.autoSave()"></textarea>
                     </div>
                 </div>
             </div>
@@ -71,7 +71,7 @@
                 <div class="row g-3">
                     <div class="col-md-6">
                         <label class="form-label small fw-bold">Code Reference</label>
-                        <input type="text" class="form-control" id="edit-code-ref" placeholder="e.g., R703.8" onchange="Review.markDirty()">
+                        <input type="text" class="form-control" id="edit-code-ref" placeholder="e.g., R703.8" oninput="Review.autoSave()">
                     </div>
                     <div class="col-md-3">
                         <label class="form-label small fw-bold">Confidence</label>
@@ -154,6 +154,7 @@ const Review = {
     items: [],
     isDirty: false,
     pdfWindow: null,
+    autoSaveTimeout: null,
 
     async init() {
         await this.loadItems();
@@ -213,10 +214,10 @@ const Review = {
             return;
         }
 
-        // Check for unsaved changes
-        if (this.isDirty && !confirm('You have unsaved changes. Discard them?')) {
-            document.getElementById('item-select').value = this.currentItem?.id || '';
-            return;
+        // Auto-save any pending changes before switching
+        if (this.isDirty && this.currentItem) {
+            clearTimeout(this.autoSaveTimeout);
+            await this.saveChanges(true);
         }
 
         try {
@@ -283,6 +284,7 @@ const Review = {
             }
 
             // Enable buttons
+            document.getElementById('save-btn').innerHTML = '<i class="bi bi-check-lg me-1"></i>Save Changes';
             document.getElementById('save-btn').disabled = true;
             document.getElementById('pdf-popout-btn').disabled = false;
 
@@ -306,9 +308,11 @@ const Review = {
         document.getElementById('ai-violation').textContent = '-';
         document.getElementById('search-term').value = '';
         document.getElementById('snapshot-section').style.display = 'none';
+        document.getElementById('save-btn').innerHTML = '<i class="bi bi-check-lg me-1"></i>Save Changes';
         document.getElementById('save-btn').disabled = true;
         document.getElementById('pdf-popout-btn').disabled = true;
         this.isDirty = false;
+        clearTimeout(this.autoSaveTimeout);
     },
 
     markDirty() {
@@ -316,7 +320,19 @@ const Review = {
         document.getElementById('save-btn').disabled = false;
     },
 
-    async saveChanges() {
+    autoSave() {
+        // Debounced auto-save - saves to server after 500ms of no typing
+        this.isDirty = true;
+        document.getElementById('save-btn').disabled = false;
+        document.getElementById('save-btn').innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Saving...';
+
+        clearTimeout(this.autoSaveTimeout);
+        this.autoSaveTimeout = setTimeout(() => {
+            this.saveChanges(true);  // silent save
+        }, 500);
+    },
+
+    async saveChanges(silent = false) {
         if (!this.currentItem) return;
 
         try {
@@ -331,18 +347,28 @@ const Review = {
                 }
             });
 
-            App.toast('Changes saved', 'success');
             this.isDirty = false;
+            document.getElementById('save-btn').innerHTML = '<i class="bi bi-check-lg me-1"></i>Saved';
             document.getElementById('save-btn').disabled = true;
+
+            if (!silent) {
+                App.toast('Changes saved', 'success');
+            }
 
             // Update search term if code ref changed
             document.getElementById('search-term').value = document.getElementById('edit-code-ref').value;
 
-            // Reload items list to reflect changes
-            await this.loadItems();
+            // Update current item data
+            this.currentItem.location = document.getElementById('edit-location').value;
+            this.currentItem.description = document.getElementById('edit-description').value;
+            this.currentItem.analysis = document.getElementById('edit-analysis').value;
+            this.currentItem.ai_reference = document.getElementById('edit-code-ref').value;
 
         } catch (e) {
-            App.toast('Failed to save: ' + e.message, 'error');
+            document.getElementById('save-btn').innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>Error';
+            if (!silent) {
+                App.toast('Failed to save: ' + e.message, 'error');
+            }
         }
     },
 
