@@ -1075,7 +1075,7 @@ def save_settings():
                     setattr(state.config.pdf_settings, key, value)
 
         # Save to file
-        state.config_manager.save_config(state.config)
+        state.config_manager.save(state.config)
 
         return jsonify({'success': True})
     except Exception as e:
@@ -1100,7 +1100,7 @@ def add_code_folder():
             return jsonify({'error': 'Folder name already exists'}), 400
 
     state.config.code_folders.append(CodeFolder(name=name, path=path))
-    state.config_manager.save_config(state.config)
+    state.config_manager.save(state.config)
 
     return jsonify({'success': True})
 
@@ -1113,7 +1113,7 @@ def remove_code_folder():
 
     state = get_app_state()
     state.config.code_folders = [f for f in state.config.code_folders if f.name != name]
-    state.config_manager.save_config(state.config)
+    state.config_manager.save(state.config)
 
     return jsonify({'success': True})
 
