@@ -559,8 +559,151 @@ def stop_processing():
     return jsonify({'success': True})
 
 
+def _process_single_pass(client, item, pdf_content, system_prompt, build_analysis_prompt):
+    """Process item with all PDF content in a single AI call."""
+    from services.ai_service.response_parser import parse_analysis_response
+
+    user_prompt = build_analysis_prompt(
+        description=item.user_description or '',
+        location=item.user_location or '',
+        pdf_content=pdf_content
+    )
+
+    image_path = item.photo_edited_path or item.photo_original_path
+    print(f"[Processing] Calling Gemini API for: {image_path}")
+    response = client.generate_with_image(system_prompt, user_prompt, image_path)
+    print(f"[Processing] Got response, parsing...")
+
+    return parse_analysis_response(response)
+
+
+def _process_multi_pass(client, item, pdf_paths, sizing, system_prompt, build_analysis_prompt, parse_analysis_response):
+    """
+    Process each PDF separately and combine results.
+
+    Strategy:
+    1. Process each PDF individually with the AI
+    2. Collect all results that found a reference
+    3. Pick the best result (highest confidence, or first valid one)
+    4. Combine reasoning from all relevant findings
+    """
+    from services.ai_service.pdf_extractor import extract_single_pdf
+    from core.inspection_item import ConfidenceLevel
+
+    results = []
+    image_path = item.photo_edited_path or item.photo_original_path
+
+    # Process each PDF separately
+    for pdf_info in sizing['pdfs']:
+        pdf_path = pdf_info['path']
+        pdf_name = pdf_info['name']
+
+        print(f"[Processing] Multi-pass: Processing {pdf_name} ({pdf_info['chars']:,} chars)...")
+
+        # Extract this PDF's content
+        pdf_content, _ = extract_single_pdf(pdf_path)
+
+        # Build prompt for this PDF
+        user_prompt = build_analysis_prompt(
+            description=item.user_description or '',
+            location=item.user_location or '',
+            pdf_content=pdf_content
+        )
+
+        try:
+            response = client.generate_with_image(system_prompt, user_prompt, image_path)
+            parsed = parse_analysis_response(response)
+
+            print(f"[Processing] Multi-pass: {pdf_name} -> {parsed.reference} ({parsed.confidence})")
+
+            # Store result with source PDF
+            results.append({
+                'pdf_name': pdf_name,
+                'pdf_path': pdf_path,
+                'reference': parsed.reference,
+                'reasoning': parsed.reasoning,
+                'confidence': parsed.confidence,
+                'match_type': parsed.match_type,
+                'is_valid': parsed.reference and parsed.reference != "NOT_FOUND"
+            })
+        except Exception as e:
+            print(f"[Processing] Multi-pass: Error processing {pdf_name}: {e}")
+            results.append({
+                'pdf_name': pdf_name,
+                'pdf_path': pdf_path,
+                'reference': None,
+                'reasoning': f"Error: {e}",
+                'confidence': None,
+                'match_type': None,
+                'is_valid': False
+            })
+
+    # Combine results - find the best match
+    valid_results = [r for r in results if r['is_valid']]
+
+    if not valid_results:
+        # No valid results found in any PDF
+        print("[Processing] Multi-pass: No valid references found in any PDF")
+        from dataclasses import dataclass
+        from typing import Optional
+        from core.inspection_item import MatchType
+
+        @dataclass
+        class CombinedResult:
+            reference: str = "NOT_FOUND"
+            reasoning: str = ""
+            confidence: Optional[ConfidenceLevel] = ConfidenceLevel.LOW
+            match_type: Optional[MatchType] = None
+
+        all_reasoning = []
+        for r in results:
+            all_reasoning.append(f"[{r['pdf_name']}]: {r['reasoning']}")
+
+        return CombinedResult(
+            reference="NOT_FOUND",
+            reasoning="No matching reference found in any of the provided documents.\n\n" + "\n\n".join(all_reasoning),
+            confidence=ConfidenceLevel.LOW,
+            match_type=None
+        )
+
+    # Sort by confidence (High > Medium > Low)
+    confidence_order = {ConfidenceLevel.HIGH: 0, ConfidenceLevel.MEDIUM: 1, ConfidenceLevel.LOW: 2, None: 3}
+    valid_results.sort(key=lambda r: confidence_order.get(r['confidence'], 3))
+
+    # Take the best result
+    best = valid_results[0]
+
+    # Build combined reasoning mentioning all findings
+    combined_reasoning = f"[Best match from {best['pdf_name']}]: {best['reasoning']}"
+
+    if len(valid_results) > 1:
+        combined_reasoning += "\n\n[Other relevant findings]:\n"
+        for r in valid_results[1:]:
+            combined_reasoning += f"- {r['pdf_name']}: {r['reference']} - {r['reasoning'][:200]}...\n"
+
+    from dataclasses import dataclass
+    from typing import Optional
+    from core.inspection_item import MatchType
+
+    @dataclass
+    class CombinedResult:
+        reference: str
+        reasoning: str
+        confidence: Optional[ConfidenceLevel]
+        match_type: Optional[MatchType]
+
+    print(f"[Processing] Multi-pass: Best result is {best['reference']} from {best['pdf_name']}")
+
+    return CombinedResult(
+        reference=best['reference'],
+        reasoning=combined_reasoning,
+        confidence=best['confidence'],
+        match_type=best['match_type']
+    )
+
+
 def _run_processing(items: List[InspectionItem]):
-    """Background processing function."""
+    """Background processing function with multi-pass support for large PDF sets."""
     global _processing_status
 
     print(f"[Processing] Starting processing of {len(items)} items...")
@@ -572,7 +715,11 @@ def _run_processing(items: List[InspectionItem]):
         from services.ai_service.gemini_client import GeminiClient
         from services.ai_service.prompt_templates import SYSTEM_PROMPT_CODE_ANALYSIS, build_analysis_prompt
         from services.ai_service.response_parser import parse_analysis_response
-        from services.ai_service.pdf_extractor import extract_multiple_pdfs, find_reference_in_multiple_pdfs
+        from services.ai_service.pdf_extractor import (
+            extract_multiple_pdfs_smart, extract_single_pdf,
+            find_reference_in_multiple_pdfs, scan_pdfs_for_sizing
+        )
+        from core.inspection_item import ConfidenceLevel
 
         print(f"[Processing] Creating Gemini client with model: {state.config.ai_settings.model_name}")
         client = GeminiClient(
@@ -603,7 +750,6 @@ def _run_processing(items: List[InspectionItem]):
                     parts = chapter.split(':')
                     if len(parts) == 2:
                         folder_name, chapter_file = parts
-                        # Find the folder path
                         for folder in state.config.code_folders:
                             if folder.name == folder_name:
                                 pdf_path = Path(folder.path) / chapter_file
@@ -611,39 +757,36 @@ def _run_processing(items: List[InspectionItem]):
                                     pdf_paths.append(str(pdf_path))
                                 break
 
-                # Extract PDF text - use generous limits for full document coverage
-                pdf_content = ""
-                if pdf_paths:
-                    print(f"[Processing] Extracting text from {len(pdf_paths)} PDF(s)...")
-                    pdf_content = extract_multiple_pdfs(pdf_paths)  # Uses default 500k char limit
-                    print(f"[Processing] Total extracted: {len(pdf_content)} characters")
-                else:
+                if not pdf_paths:
                     print("[Processing] WARNING: No PDFs selected for this item!")
+                    # Process without PDF
+                    parsed = _process_single_pass(
+                        client, item, "", SYSTEM_PROMPT_CODE_ANALYSIS, build_analysis_prompt
+                    )
+                else:
+                    # Scan PDFs to determine strategy
+                    sizing = scan_pdfs_for_sizing(pdf_paths)
 
-                # Build prompts with PDF content
-                system_prompt = SYSTEM_PROMPT_CODE_ANALYSIS
-                user_prompt = build_analysis_prompt(
-                    description=item.user_description or '',
-                    location=item.user_location or '',
-                    pdf_content=pdf_content
-                )
-
-                # Call AI
-                image_path = item.photo_edited_path or item.photo_original_path
-                print(f"[Processing] Calling Gemini API for: {image_path}")
-                response = client.generate_with_image(system_prompt, user_prompt, image_path)
-                print(f"[Processing] Got response, parsing...")
-
-                # Parse response
-                parsed = parse_analysis_response(response)
+                    if sizing['fits_single_pass']:
+                        # Single pass - all PDFs fit in context
+                        print(f"[Processing] Single-pass processing ({sizing['total_chars']:,} chars)")
+                        pdf_content, _ = extract_multiple_pdfs_smart(pdf_paths)
+                        parsed = _process_single_pass(
+                            client, item, pdf_content, SYSTEM_PROMPT_CODE_ANALYSIS, build_analysis_prompt
+                        )
+                    else:
+                        # Multi-pass - process each PDF separately and combine results
+                        print(f"[Processing] Multi-pass processing ({len(pdf_paths)} PDFs, {sizing['total_chars']:,} chars total)")
+                        parsed = _process_multi_pass(
+                            client, item, pdf_paths, sizing,
+                            SYSTEM_PROMPT_CODE_ANALYSIS, build_analysis_prompt, parse_analysis_response
+                        )
 
                 # Verify reference exists in PDF (if we have PDFs and a reference)
                 if pdf_paths and parsed.reference and parsed.reference != "NOT_FOUND":
                     found_in = find_reference_in_multiple_pdfs(pdf_paths, parsed.reference)
                     if not found_in:
                         print(f"[Processing] WARNING: Reference '{parsed.reference}' not verified in PDFs")
-                        # Mark as lower confidence since we couldn't verify
-                        from core.inspection_item import ConfidenceLevel
                         parsed.confidence = ConfidenceLevel.LOW
                         parsed.reasoning = f"[UNVERIFIED] {parsed.reasoning}"
                     else:

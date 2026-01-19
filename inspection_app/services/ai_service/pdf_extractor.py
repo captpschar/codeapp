@@ -8,20 +8,20 @@ from typing import List, Dict, Optional, Tuple
 import fitz  # PyMuPDF
 
 # Gemini 2.5 Flash has ~1M token context (~4M chars), but we want to leave room for:
-# - System prompt
-# - User prompt
-# - Image data
-# - Response generation
-# So we cap at 800k chars to be safe
-ABSOLUTE_MAX_CHARS = 800000
+# - System prompt, user prompt, image data, response generation
+# Single PDF limit - more generous since it's just one document
+SINGLE_PDF_MAX_CHARS = 600000
+
+# When combining multiple PDFs, use slightly lower limit
+MULTI_PDF_MAX_CHARS = 500000
 
 
 def get_pdf_text_size(pdf_path: str) -> Tuple[int, int]:
     """
-    Quickly scan a PDF to get its text size without full extraction.
+    Scan a PDF to get its text size.
 
     Returns:
-        Tuple of (estimated_chars, page_count)
+        Tuple of (char_count, page_count)
     """
     path = Path(pdf_path)
     if not path.exists():
@@ -32,7 +32,6 @@ def get_pdf_text_size(pdf_path: str) -> Tuple[int, int]:
         total_chars = 0
         page_count = len(doc)
 
-        # Extract text from all pages to get accurate count
         for page in doc:
             text = page.get_text()
             total_chars += len(text)
@@ -47,17 +46,17 @@ def get_pdf_text_size(pdf_path: str) -> Tuple[int, int]:
 
 def scan_pdfs_for_sizing(pdf_paths: List[str]) -> Dict:
     """
-    Scan all PDFs to determine total size and plan extraction.
+    Scan all PDFs to determine sizes and extraction strategy.
 
     Returns:
-        Dict with sizing info and extraction plan
+        Dict with sizing info and recommended strategy
     """
     results = {
         'pdfs': [],
         'total_chars': 0,
         'total_pages': 0,
-        'fits_in_context': True,
-        'needs_truncation': False
+        'strategy': 'single_pass',  # or 'multi_pass'
+        'fits_single_pass': True
     }
 
     for pdf_path in pdf_paths:
@@ -75,10 +74,16 @@ def scan_pdfs_for_sizing(pdf_paths: List[str]) -> Dict:
         results['total_chars'] += chars
         results['total_pages'] += pages
 
-    # Check if everything fits
-    if results['total_chars'] > ABSOLUTE_MAX_CHARS:
-        results['fits_in_context'] = False
-        results['needs_truncation'] = True
+    # Determine strategy
+    if len(results['pdfs']) == 1:
+        # Single PDF - use generous limit
+        results['fits_single_pass'] = results['total_chars'] <= SINGLE_PDF_MAX_CHARS
+    else:
+        # Multiple PDFs - check if they all fit together
+        results['fits_single_pass'] = results['total_chars'] <= MULTI_PDF_MAX_CHARS
+
+    if not results['fits_single_pass']:
+        results['strategy'] = 'multi_pass'
 
     return results
 
@@ -86,12 +91,6 @@ def scan_pdfs_for_sizing(pdf_paths: List[str]) -> Dict:
 def extract_pdf_text_full(pdf_path: str) -> str:
     """
     Extract ALL text from a PDF file - no limits.
-
-    Args:
-        pdf_path: Path to PDF file
-
-    Returns:
-        Complete extracted text content
     """
     path = Path(pdf_path)
     if not path.exists():
@@ -115,127 +114,101 @@ def extract_pdf_text_full(pdf_path: str) -> str:
         return ""
 
 
-def extract_multiple_pdfs_smart(pdf_paths: List[str]) -> str:
+def extract_single_pdf(pdf_path: str) -> Tuple[str, Dict]:
     """
-    Smart extraction that scans PDFs first and adjusts to fit all content.
-
-    1. Scans all PDFs to determine total size
-    2. If total fits in context, extracts everything
-    3. If too large, extracts proportionally from each PDF
-
-    Args:
-        pdf_paths: List of PDF file paths
+    Extract text from a single PDF with full content.
 
     Returns:
-        Combined text from all PDFs
+        Tuple of (extracted_text, pdf_info)
+    """
+    path = Path(pdf_path)
+    chars, pages = get_pdf_text_size(pdf_path)
+
+    pdf_info = {
+        'path': pdf_path,
+        'name': path.name,
+        'chars': chars,
+        'pages': pages,
+        'truncated': False
+    }
+
+    text = extract_pdf_text_full(pdf_path)
+
+    # Only truncate if single PDF exceeds generous single-doc limit
+    if len(text) > SINGLE_PDF_MAX_CHARS:
+        text = text[:SINGLE_PDF_MAX_CHARS] + f"\n\n[... TRUNCATED - showing {SINGLE_PDF_MAX_CHARS:,} of {len(text):,} chars ...]"
+        pdf_info['truncated'] = True
+        print(f"[PDF Extract] ⚠ {path.name}: truncated to {SINGLE_PDF_MAX_CHARS:,} chars")
+    else:
+        print(f"[PDF Extract] ✓ {path.name}: {len(text):,} chars (complete)")
+
+    header = f"\n{'='*60}\nDOCUMENT: {path.name} ({pages} pages)\n{'='*60}\n"
+    return header + text, pdf_info
+
+
+def extract_multiple_pdfs_smart(pdf_paths: List[str]) -> Tuple[str, Dict]:
+    """
+    Smart extraction that returns text and sizing info.
+
+    Returns:
+        Tuple of (combined_text, sizing_info)
     """
     if not pdf_paths:
-        return ""
+        return "", {'strategy': 'none', 'pdfs': []}
 
-    # First pass: scan to determine sizes
+    # Scan all PDFs first
     print(f"[PDF Extract] Scanning {len(pdf_paths)} PDF(s) for sizing...")
     sizing = scan_pdfs_for_sizing(pdf_paths)
 
     print(f"[PDF Extract] Total content: {sizing['total_chars']:,} chars across {sizing['total_pages']} pages")
+    print(f"[PDF Extract] Strategy: {sizing['strategy']}")
 
     if sizing['total_chars'] == 0:
         print("[PDF Extract] WARNING: No text found in PDFs")
-        return ""
+        return "", sizing
 
-    # Determine extraction strategy
     all_text = []
 
-    if sizing['fits_in_context']:
-        # Everything fits! Extract it all
-        print(f"[PDF Extract] All content fits in context - extracting full documents")
-
+    if sizing['fits_single_pass']:
+        # Everything fits - extract all
+        print(f"[PDF Extract] All content fits - extracting full documents")
         for pdf_info in sizing['pdfs']:
-            text = extract_pdf_text_full(pdf_info['path'])
-            if text:
-                header = f"\n{'='*60}\nDOCUMENT: {pdf_info['name']} ({pdf_info['pages']} pages)\n{'='*60}\n"
-                all_text.append(header + text)
-                print(f"[PDF Extract] ✓ {pdf_info['name']}: {len(text):,} chars (complete)")
-
+            text, _ = extract_single_pdf(pdf_info['path'])
+            all_text.append(text)
     else:
-        # Need to be smart about extraction
-        print(f"[PDF Extract] WARNING: Total content ({sizing['total_chars']:,}) exceeds limit ({ABSOLUTE_MAX_CHARS:,})")
-        print(f"[PDF Extract] Extracting proportionally from each PDF...")
-
-        # Calculate proportion for each PDF
-        remaining_budget = ABSOLUTE_MAX_CHARS
-
-        for pdf_info in sizing['pdfs']:
-            # Give each PDF a proportional share of the budget
-            proportion = pdf_info['chars'] / sizing['total_chars']
-            char_budget = int(ABSOLUTE_MAX_CHARS * proportion)
-
-            text = extract_pdf_text_full(pdf_info['path'])
-
-            if text:
-                header = f"\n{'='*60}\nDOCUMENT: {pdf_info['name']} ({pdf_info['pages']} pages)\n{'='*60}\n"
-
-                if len(text) > char_budget:
-                    # Truncate this PDF's content
-                    text = text[:char_budget] + f"\n\n[... TRUNCATED - showing {char_budget:,} of {len(text):,} chars ...]"
-                    print(f"[PDF Extract] ⚠ {pdf_info['name']}: truncated to {char_budget:,} chars")
-                else:
-                    print(f"[PDF Extract] ✓ {pdf_info['name']}: {len(text):,} chars (complete)")
-
-                all_text.append(header + text)
+        # Too large for single pass - will need multi-pass processing
+        # For now, just return info about what's needed
+        print(f"[PDF Extract] Content exceeds limit - multi-pass processing recommended")
+        # Don't extract here - let the caller handle multi-pass
 
     result = "\n".join(all_text)
-    print(f"[PDF Extract] Final extraction: {len(result):,} chars")
-    return result
+    sizing['extracted_chars'] = len(result)
+    return result, sizing
 
 
-# Keep the old function name for backwards compatibility
+# Backwards compatible function
 def extract_multiple_pdfs(pdf_paths: List[str], max_total_chars: int = None) -> str:
-    """
-    Extract text from multiple PDFs using smart sizing.
-
-    Args:
-        pdf_paths: List of PDF file paths
-        max_total_chars: Ignored - uses smart sizing instead
-
-    Returns:
-        Combined text from all PDFs
-    """
-    return extract_multiple_pdfs_smart(pdf_paths)
+    """Extract text from multiple PDFs."""
+    text, _ = extract_multiple_pdfs_smart(pdf_paths)
+    return text
 
 
 def find_reference_in_pdf(pdf_path: str, reference: str) -> bool:
-    """
-    Verify that a code reference actually exists in the PDF.
-
-    Args:
-        pdf_path: Path to PDF
-        reference: Code reference to search for (e.g., "R703.8")
-
-    Returns:
-        True if reference found, False otherwise
-    """
+    """Verify that a code reference exists in the PDF."""
     try:
         doc = fitz.open(pdf_path)
-
         for page in doc:
             if page.search_for(reference):
                 doc.close()
                 return True
-
         doc.close()
         return False
-
     except Exception:
         return False
 
 
 def find_reference_in_multiple_pdfs(pdf_paths: List[str], reference: str) -> Optional[str]:
-    """
-    Find which PDF contains a reference.
-
-    Returns:
-        Path to PDF containing reference, or None
-    """
+    """Find which PDF contains a reference."""
     for pdf_path in pdf_paths:
         if find_reference_in_pdf(pdf_path, reference):
             return pdf_path
