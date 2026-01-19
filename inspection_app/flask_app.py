@@ -557,59 +557,84 @@ def _run_processing(items: List[InspectionItem]):
     """Background processing function."""
     global _processing_status
 
-    state = get_app_state()
+    print(f"[Processing] Starting processing of {len(items)} items...")
 
-    from services.ai_service.gemini_client import GeminiClient
-    from services.ai_service.prompt_templates import SYSTEM_PROMPT_CODE_ANALYSIS, build_analysis_prompt
-    from services.ai_service.response_parser import parse_analysis_response
+    try:
+        state = get_app_state()
 
-    client = GeminiClient(
-        api_key=state.config.gemini_api_key,
-        model_name=state.config.ai_settings.model_name
-    )
+        print("[Processing] Importing AI services...")
+        from services.ai_service.gemini_client import GeminiClient
+        from services.ai_service.prompt_templates import SYSTEM_PROMPT_CODE_ANALYSIS, build_analysis_prompt
+        from services.ai_service.response_parser import parse_analysis_response
 
-    for i, item in enumerate(items):
-        if not _processing_status['running']:
-            break
+        print(f"[Processing] Creating Gemini client with model: {state.config.ai_settings.model_name}")
+        client = GeminiClient(
+            api_key=state.config.gemini_api_key,
+            model_name=state.config.ai_settings.model_name
+        )
 
-        _processing_status['current_item'] = Path(item.photo_original_path).name if item.photo_original_path else 'Unknown'
-        _processing_status['progress'] = i
+        for i, item in enumerate(items):
+            if not _processing_status['running']:
+                print("[Processing] Processing stopped by user")
+                break
 
-        try:
-            # Update status to processing
-            item.status = ItemStatus.PROCESSING
-            state.queue.update_item(item)
+            filename = Path(item.photo_original_path).name if item.photo_original_path else 'Unknown'
+            print(f"[Processing] Processing item {i+1}/{len(items)}: {filename}")
 
-            # Build prompts
-            system_prompt = SYSTEM_PROMPT_CODE_ANALYSIS
-            user_prompt = build_analysis_prompt(
-                description=item.user_description or '',
-                location=item.user_location or ''
-            )
+            _processing_status['current_item'] = filename
+            _processing_status['progress'] = i
 
-            # Call AI
-            image_path = item.photo_edited_path or item.photo_original_path
-            response = client.generate_with_image(system_prompt, user_prompt, image_path)
+            try:
+                # Update status to processing
+                item.status = ItemStatus.PROCESSING
+                state.queue.update_item(item)
 
-            # Parse response
-            parsed = parse_analysis_response(response)
+                # Build prompts
+                system_prompt = SYSTEM_PROMPT_CODE_ANALYSIS
+                user_prompt = build_analysis_prompt(
+                    description=item.user_description or '',
+                    location=item.user_location or ''
+                )
 
-            # Update item
-            item.ai_code_reference = parsed.reference
-            item.ai_violation_description = parsed.reasoning
-            item.ai_match_type = parsed.match_type
-            item.ai_confidence = parsed.confidence
-            item.status = ItemStatus.REVIEW_READY
-            state.queue.update_item(item)
+                # Call AI
+                image_path = item.photo_edited_path or item.photo_original_path
+                print(f"[Processing] Calling Gemini API for: {image_path}")
+                response = client.generate_with_image(system_prompt, user_prompt, image_path)
+                print(f"[Processing] Got response, parsing...")
 
-        except Exception as e:
-            item.status = ItemStatus.ERROR
-            item.error_message = str(e)
-            state.queue.update_item(item)
-            _processing_status['error'] = str(e)
+                # Parse response
+                parsed = parse_analysis_response(response)
+
+                # Update item
+                item.ai_code_reference = parsed.reference
+                item.ai_violation_description = parsed.reasoning
+                item.ai_match_type = parsed.match_type
+                item.ai_confidence = parsed.confidence
+                item.status = ItemStatus.REVIEW_READY
+                state.queue.update_item(item)
+
+                print(f"[Processing] Item completed: {parsed.reference}")
+
+            except Exception as e:
+                print(f"[Processing] ERROR processing item: {e}")
+                import traceback
+                traceback.print_exc()
+                item.status = ItemStatus.ERROR
+                item.error_message = str(e)
+                state.queue.update_item(item)
+                _processing_status['error'] = str(e)
+
+        print("[Processing] Processing loop complete")
+
+    except Exception as e:
+        print(f"[Processing] FATAL ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        _processing_status['error'] = str(e)
 
     _processing_status['running'] = False
     _processing_status['progress'] = len(items)
+    print("[Processing] Processing thread finished")
 
 
 @app.route('/api/processing/items')
