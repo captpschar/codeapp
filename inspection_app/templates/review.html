@@ -3,67 +3,99 @@
 {% block title %}Review - Inspection Photo Review{% endblock %}
 {% block page_title %}Phase 3: Review & Approve{% endblock %}
 
+{% block top_bar_actions %}
+<div class="d-flex align-items-center gap-3">
+    <select class="form-select form-select-sm" id="item-select" style="width: 300px;" onchange="Review.selectItem(this.value)">
+        <option value="">Select item to review...</option>
+    </select>
+    <span id="item-status" class="badge bg-secondary">-</span>
+</div>
+{% endblock %}
+
 {% block content %}
 <div class="row g-4">
-    <!-- Items List -->
-    <div class="col-lg-3">
-        <div class="card">
-            <div class="card-header">
-                <i class="bi bi-list-check"></i> Items to Review
-            </div>
-            <div class="card-body p-0" style="max-height: 700px; overflow-y: auto;">
-                <div id="review-items-list">
-                    <p class="text-muted text-center py-4">Loading...</p>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Item Details + Photo -->
-    <div class="col-lg-5">
+    <!-- Photo & Details Column -->
+    <div class="col-lg-6">
+        <!-- Photo Card -->
         <div class="card mb-4">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span><i class="bi bi-image"></i> Inspection Photo</span>
-                <span class="badge bg-secondary" id="selected-item-status">-</span>
+                <span class="small text-muted" id="photo-filename">-</span>
             </div>
             <div class="card-body p-0">
-                <div class="image-container" id="photo-container" style="min-height: 300px;">
+                <div class="image-container" style="min-height: 350px; background: #f8f9fa;">
                     <div id="photo-placeholder" class="text-muted">
                         <i class="bi bi-image" style="font-size: 3rem;"></i>
                         <p>Select an item to view</p>
                     </div>
-                    <img id="item-photo" src="" alt="" style="display: none;">
+                    <img id="item-photo" src="" alt="" style="display: none; max-width: 100%; height: auto;">
                 </div>
             </div>
         </div>
 
-        <!-- Item Info -->
+        <!-- Editable Details Card -->
         <div class="card">
-            <div class="card-header">
-                <i class="bi bi-info-circle"></i> Item Details
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-pencil-square"></i> Item Details</span>
+                <button class="btn btn-sm btn-primary" onclick="Review.saveChanges()" id="save-btn" disabled>
+                    <i class="bi bi-check-lg me-1"></i>Save Changes
+                </button>
             </div>
-            <div class="card-body" id="item-details">
-                <p class="text-muted">Select an item to see details</p>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-12">
+                        <label class="form-label small fw-bold">Location</label>
+                        <input type="text" class="form-control" id="edit-location" placeholder="Location..." onchange="Review.markDirty()">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-bold">Description</label>
+                        <textarea class="form-control" id="edit-description" rows="2" placeholder="Description..." onchange="Review.markDirty()"></textarea>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-bold">Analysis <span class="text-muted fw-normal">(reviewer notes)</span></label>
+                        <textarea class="form-control" id="edit-analysis" rows="3" placeholder="Your analysis and notes..." onchange="Review.markDirty()"></textarea>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 
-    <!-- AI Results & PDF Viewer -->
-    <div class="col-lg-4">
-        <!-- AI Analysis -->
+    <!-- AI Results & Actions Column -->
+    <div class="col-lg-6">
+        <!-- AI Analysis Card -->
         <div class="card mb-4">
             <div class="card-header">
                 <i class="bi bi-robot"></i> AI Analysis
             </div>
-            <div class="card-body" id="ai-results">
-                <p class="text-muted">Select an item to see AI results</p>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label small fw-bold">Code Reference</label>
+                        <input type="text" class="form-control" id="edit-code-ref" placeholder="e.g., R703.8" onchange="Review.markDirty()">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold">Confidence</label>
+                        <div id="ai-confidence" class="form-control-plaintext">-</div>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold">Type</label>
+                        <div id="ai-match-type" class="form-control-plaintext">-</div>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-bold">AI Violation Description</label>
+                        <div id="ai-violation" class="form-control-plaintext bg-light p-2 rounded small" style="min-height: 60px;">-</div>
+                    </div>
+                </div>
             </div>
         </div>
 
-        <!-- PDF Search -->
+        <!-- PDF Search & Viewer Card -->
         <div class="card mb-4">
-            <div class="card-header">
-                <i class="bi bi-search"></i> PDF Search
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-file-pdf"></i> PDF Reference</span>
+                <button class="btn btn-sm btn-outline-primary" onclick="Review.openPdfViewer()" id="pdf-popout-btn" disabled>
+                    <i class="bi bi-box-arrow-up-right me-1"></i>Open PDF Viewer
+                </button>
             </div>
             <div class="card-body">
                 <div class="input-group mb-3">
@@ -71,62 +103,42 @@
                         <option value="">Select PDF...</option>
                     </select>
                     <input type="text" class="form-control" id="search-term" placeholder="Search term...">
-                    <button class="btn btn-primary" onclick="Review.searchPdf()">
-                        <i class="bi bi-search"></i>
+                    <button class="btn btn-primary" onclick="Review.openPdfViewer(true)">
+                        <i class="bi bi-search"></i> Search
                     </button>
                 </div>
-                <div id="search-results" class="small text-muted"></div>
-            </div>
-        </div>
 
-        <!-- PDF Viewer -->
-        <div class="card mb-4">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-file-pdf"></i> PDF Viewer</span>
-                <div class="btn-group btn-group-sm">
-                    <button class="btn btn-outline-secondary" onclick="Review.pdfNav('first')"><i class="bi bi-skip-backward"></i></button>
-                    <button class="btn btn-outline-secondary" onclick="Review.pdfNav('prev')"><i class="bi bi-chevron-left"></i></button>
-                    <button class="btn btn-outline-secondary" onclick="Review.pdfNav('next')"><i class="bi bi-chevron-right"></i></button>
-                    <button class="btn btn-outline-secondary" onclick="Review.pdfNav('last')"><i class="bi bi-skip-forward"></i></button>
+                <!-- Snapshot Preview -->
+                <div id="snapshot-section" style="display: none;">
+                    <label class="form-label small fw-bold">Code Snapshot</label>
+                    <div class="border rounded p-2 bg-light">
+                        <img id="snapshot-image" src="" alt="Snapshot" class="img-fluid">
+                    </div>
                 </div>
             </div>
-            <div class="pdf-viewer" id="pdf-viewer">
-                <div id="pdf-placeholder" class="text-white-50">
-                    <i class="bi bi-file-pdf" style="font-size: 3rem;"></i>
-                    <p>Select a PDF to view</p>
-                </div>
-                <img id="pdf-image" src="" alt="" style="display: none;">
-            </div>
-            <div class="card-footer d-flex justify-content-between align-items-center">
-                <span id="pdf-page-info" class="small text-muted">Page - / -</span>
-                <button class="btn btn-sm btn-success" onclick="Review.takeSnapshot()">
-                    <i class="bi bi-camera me-1"></i>Take Snapshot
-                </button>
-            </div>
         </div>
 
-        <!-- Snapshot Preview -->
-        <div class="card mb-4" id="snapshot-card" style="display: none;">
-            <div class="card-header">
-                <i class="bi bi-card-image"></i> Code Snapshot
-            </div>
-            <div class="card-body p-2">
-                <img id="snapshot-image" src="" alt="Snapshot" class="img-fluid">
-            </div>
-        </div>
-
-        <!-- Approval -->
+        <!-- Approval Card -->
         <div class="card">
             <div class="card-body">
-                <div class="form-check form-switch mb-3">
-                    <input class="form-check-input" type="checkbox" id="approval-checkbox" onchange="Review.toggleApproval()">
-                    <label class="form-check-label" for="approval-checkbox">
-                        <strong>Approve this item</strong>
-                    </label>
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="approval-checkbox" onchange="Review.toggleApproval()">
+                        <label class="form-check-label fw-bold" for="approval-checkbox">
+                            Approve this item
+                        </label>
+                    </div>
+                    <button class="btn btn-outline-warning btn-sm" onclick="Review.reprocess()">
+                        <i class="bi bi-arrow-repeat me-1"></i>Re-process with AI
+                    </button>
                 </div>
-                <div class="d-grid gap-2">
-                    <button class="btn btn-outline-warning" onclick="Review.reprocess()">
-                        <i class="bi bi-arrow-repeat me-1"></i>Send Back to AI
+
+                <div class="d-flex gap-2">
+                    <button class="btn btn-outline-secondary flex-fill" onclick="Review.navItem('prev')">
+                        <i class="bi bi-chevron-left me-1"></i>Previous
+                    </button>
+                    <button class="btn btn-outline-secondary flex-fill" onclick="Review.navItem('next')">
+                        Next<i class="bi bi-chevron-right ms-1"></i>
                     </button>
                 </div>
             </div>
@@ -139,11 +151,9 @@
 <script>
 const Review = {
     currentItem: null,
-    currentPdf: null,
-    currentPage: 0,
-    totalPages: 0,
     items: [],
-    searchResults: [],  // Store search results with rects for highlighting
+    isDirty: false,
+    pdfWindow: null,
 
     async init() {
         await this.loadItems();
@@ -155,24 +165,16 @@ const Review = {
             const data = await App.api('/api/review/items');
             this.items = data.items;
 
-            const list = document.getElementById('review-items-list');
+            const select = document.getElementById('item-select');
             if (data.items.length === 0) {
-                list.innerHTML = '<p class="text-muted text-center py-4">No items to review</p>';
+                select.innerHTML = '<option value="">No items to review</option>';
             } else {
-                list.innerHTML = data.items.map(item => `
-                    <div class="queue-item ${this.currentItem?.id === item.id ? 'active' : ''}"
-                         onclick="Review.selectItem('${item.id}', this)" data-id="${item.id}">
-                        <div class="d-flex justify-content-between align-items-start">
-                            <div>
-                                <div class="fw-medium small">${item.filename}</div>
-                                <div class="text-muted small">${item.location || 'No location'}</div>
-                            </div>
-                            <span class="badge bg-${this.statusColor(item.status)}">
-                                ${this.statusLabel(item.status)}
-                            </span>
-                        </div>
-                    </div>
-                `).join('');
+                select.innerHTML = '<option value="">Select item to review...</option>' +
+                    data.items.map(item => `
+                        <option value="${item.id}" ${this.currentItem?.id === item.id ? 'selected' : ''}>
+                            ${item.filename} - ${item.location || 'No location'} [${this.statusLabel(item.status)}]
+                        </option>
+                    `).join('');
             }
         } catch (e) {
             App.toast('Failed to load items: ' + e.message, 'error');
@@ -184,7 +186,6 @@ const Review = {
             const data = await App.api('/api/pdf/list');
             const select = document.getElementById('pdf-select');
 
-            // Group by folder
             const groups = {};
             data.pdfs.forEach(pdf => {
                 if (!groups[pdf.folder]) groups[pdf.folder] = [];
@@ -199,21 +200,29 @@ const Review = {
                 });
                 html += '</optgroup>';
             }
-
             select.innerHTML = html;
         } catch (e) {
             console.error('Failed to load PDF list:', e);
         }
     },
 
-    async selectItem(itemId, element) {
+    async selectItem(itemId) {
+        if (!itemId) {
+            this.currentItem = null;
+            this.resetForm();
+            return;
+        }
+
+        // Check for unsaved changes
+        if (this.isDirty && !confirm('You have unsaved changes. Discard them?')) {
+            document.getElementById('item-select').value = this.currentItem?.id || '';
+            return;
+        }
+
         try {
             const data = await App.api(`/api/review/item/${itemId}`);
             this.currentItem = data;
-
-            // Highlight in list
-            document.querySelectorAll('.queue-item').forEach(el => el.classList.remove('active'));
-            if (element) element.classList.add('active');
+            this.isDirty = false;
 
             // Update photo
             if (data.image) {
@@ -221,80 +230,202 @@ const Review = {
                 const img = document.getElementById('item-photo');
                 img.src = data.image;
                 img.style.display = 'block';
-            }
-
-            // Update status badge
-            document.getElementById('selected-item-status').textContent = data.status;
-            document.getElementById('selected-item-status').className = `badge bg-${data.approved ? 'success' : 'warning'}`;
-
-            // Update details
-            document.getElementById('item-details').innerHTML = `
-                <div class="mb-2"><strong>Location:</strong> ${data.location || '-'}</div>
-                <div class="mb-2"><strong>Description:</strong> ${data.description || '-'}</div>
-                <div><strong>Chapters:</strong> ${data.selected_chapters?.length || 0} selected</div>
-            `;
-
-            // Update AI results
-            document.getElementById('ai-results').innerHTML = `
-                <div class="mb-2">
-                    <strong>Code Reference:</strong>
-                    <div class="bg-light p-2 rounded mt-1">${data.ai_reference || 'Not analyzed'}</div>
-                </div>
-                <div class="mb-2">
-                    <strong>Violation:</strong>
-                    <div class="small">${data.ai_violation || '-'}</div>
-                </div>
-                <div class="d-flex gap-3">
-                    <div><strong>Confidence:</strong> <span class="badge bg-${this.confidenceColor(data.ai_confidence)}">${data.ai_confidence || '-'}</span></div>
-                    <div><strong>Type:</strong> ${data.ai_match_type || '-'}</div>
-                </div>
-            `;
-
-            // Set search term from AI reference
-            if (data.ai_reference) {
-                document.getElementById('search-term').value = data.ai_reference;
-            }
-
-            // Update approval checkbox
-            document.getElementById('approval-checkbox').checked = data.approved;
-
-            // Show snapshot if exists
-            if (data.snapshot) {
-                document.getElementById('snapshot-card').style.display = 'block';
-                document.getElementById('snapshot-image').src = data.snapshot;
             } else {
-                document.getElementById('snapshot-card').style.display = 'none';
+                document.getElementById('photo-placeholder').style.display = 'flex';
+                document.getElementById('item-photo').style.display = 'none';
             }
 
-            // Auto-select PDF based on chapters if possible
+            // Update status
+            document.getElementById('item-status').textContent = this.statusLabel(data.status);
+            document.getElementById('item-status').className = `badge bg-${this.statusColor(data.status)}`;
+            document.getElementById('photo-filename').textContent = data.filename;
+
+            // Fill editable fields
+            document.getElementById('edit-location').value = data.location || '';
+            document.getElementById('edit-description').value = data.description || '';
+            document.getElementById('edit-analysis').value = data.analysis || '';
+            document.getElementById('edit-code-ref').value = data.ai_reference || '';
+
+            // AI results (read-only display)
+            document.getElementById('ai-confidence').innerHTML = data.ai_confidence
+                ? `<span class="badge bg-${this.confidenceColor(data.ai_confidence)}">${data.ai_confidence}</span>`
+                : '-';
+            document.getElementById('ai-match-type').textContent = data.ai_match_type || '-';
+            document.getElementById('ai-violation').textContent = data.ai_violation || '-';
+
+            // Set search term
+            document.getElementById('search-term').value = data.ai_reference || '';
+
+            // Auto-select PDF if chapter selected
             if (data.selected_chapters?.length > 0) {
                 const firstChapter = data.selected_chapters[0];
                 const parts = firstChapter.split(':');
                 if (parts.length === 2) {
-                    // Find matching PDF in select
                     const select = document.getElementById('pdf-select');
                     for (const opt of select.options) {
                         if (opt.value.includes(parts[1])) {
                             select.value = opt.value;
-                            await this.loadPdf(opt.value);
-
-                            // Auto-search if we have an AI reference
-                            if (data.ai_reference) {
-                                await this.searchPdf();
-                            }
                             break;
                         }
                     }
                 }
             }
 
+            // Approval
+            document.getElementById('approval-checkbox').checked = data.approved;
+
+            // Snapshot
+            if (data.snapshot) {
+                document.getElementById('snapshot-section').style.display = 'block';
+                document.getElementById('snapshot-image').src = data.snapshot;
+            } else {
+                document.getElementById('snapshot-section').style.display = 'none';
+            }
+
+            // Enable buttons
+            document.getElementById('save-btn').disabled = true;
+            document.getElementById('pdf-popout-btn').disabled = false;
+
         } catch (e) {
             App.toast('Failed to load item: ' + e.message, 'error');
         }
     },
 
-    confidenceColor(confidence) {
-        return { 'high': 'success', 'medium': 'warning', 'low': 'danger' }[confidence?.toLowerCase()] || 'secondary';
+    resetForm() {
+        document.getElementById('photo-placeholder').style.display = 'flex';
+        document.getElementById('item-photo').style.display = 'none';
+        document.getElementById('item-status').textContent = '-';
+        document.getElementById('item-status').className = 'badge bg-secondary';
+        document.getElementById('photo-filename').textContent = '-';
+        document.getElementById('edit-location').value = '';
+        document.getElementById('edit-description').value = '';
+        document.getElementById('edit-analysis').value = '';
+        document.getElementById('edit-code-ref').value = '';
+        document.getElementById('ai-confidence').textContent = '-';
+        document.getElementById('ai-match-type').textContent = '-';
+        document.getElementById('ai-violation').textContent = '-';
+        document.getElementById('search-term').value = '';
+        document.getElementById('snapshot-section').style.display = 'none';
+        document.getElementById('save-btn').disabled = true;
+        document.getElementById('pdf-popout-btn').disabled = true;
+        this.isDirty = false;
+    },
+
+    markDirty() {
+        this.isDirty = true;
+        document.getElementById('save-btn').disabled = false;
+    },
+
+    async saveChanges() {
+        if (!this.currentItem) return;
+
+        try {
+            await App.api('/api/review/update', {
+                method: 'POST',
+                body: {
+                    item_id: this.currentItem.id,
+                    location: document.getElementById('edit-location').value,
+                    description: document.getElementById('edit-description').value,
+                    analysis: document.getElementById('edit-analysis').value,
+                    code_reference: document.getElementById('edit-code-ref').value
+                }
+            });
+
+            App.toast('Changes saved', 'success');
+            this.isDirty = false;
+            document.getElementById('save-btn').disabled = true;
+
+            // Update search term if code ref changed
+            document.getElementById('search-term').value = document.getElementById('edit-code-ref').value;
+
+            // Reload items list to reflect changes
+            await this.loadItems();
+
+        } catch (e) {
+            App.toast('Failed to save: ' + e.message, 'error');
+        }
+    },
+
+    openPdfViewer(withSearch = false) {
+        if (!this.currentItem) return;
+
+        const pdfPath = document.getElementById('pdf-select').value;
+        const searchTerm = document.getElementById('search-term').value;
+
+        let url = `/pdf-viewer?item=${this.currentItem.id}`;
+        if (pdfPath) url += `&pdf=${encodeURIComponent(pdfPath)}`;
+        if (withSearch && searchTerm) url += `&search=${encodeURIComponent(searchTerm)}`;
+
+        // Open in new window for side-by-side
+        this.pdfWindow = window.open(url, 'pdf_viewer', 'width=800,height=900');
+    },
+
+    onSnapshotTaken(snapshotData) {
+        // Called from PDF viewer window
+        document.getElementById('snapshot-section').style.display = 'block';
+        document.getElementById('snapshot-image').src = snapshotData;
+    },
+
+    async toggleApproval() {
+        if (!this.currentItem) return;
+
+        const approved = document.getElementById('approval-checkbox').checked;
+
+        try {
+            await App.api('/api/review/approve', {
+                method: 'POST',
+                body: { item_id: this.currentItem.id, approved }
+            });
+
+            App.toast(approved ? 'Item approved' : 'Approval removed', 'success');
+
+            // Update status display
+            const status = approved ? 'approved' : 'review_ready';
+            document.getElementById('item-status').textContent = this.statusLabel(status);
+            document.getElementById('item-status').className = `badge bg-${this.statusColor(status)}`;
+
+            await this.loadItems();
+
+        } catch (e) {
+            App.toast('Failed to update approval: ' + e.message, 'error');
+            document.getElementById('approval-checkbox').checked = !approved;
+        }
+    },
+
+    async reprocess() {
+        if (!this.currentItem) return;
+        if (!confirm('Send this item back for AI processing?')) return;
+
+        try {
+            await App.api('/api/review/reprocess', {
+                method: 'POST',
+                body: { item_id: this.currentItem.id }
+            });
+
+            App.toast('Item sent back for processing', 'success');
+            this.currentItem = null;
+            this.resetForm();
+            await this.loadItems();
+
+        } catch (e) {
+            App.toast('Failed to reprocess: ' + e.message, 'error');
+        }
+    },
+
+    navItem(direction) {
+        if (this.items.length === 0) return;
+
+        const currentIndex = this.items.findIndex(i => i.id === this.currentItem?.id);
+        let newIndex;
+
+        if (direction === 'prev') {
+            newIndex = currentIndex > 0 ? currentIndex - 1 : this.items.length - 1;
+        } else {
+            newIndex = currentIndex < this.items.length - 1 ? currentIndex + 1 : 0;
+        }
+
+        document.getElementById('item-select').value = this.items[newIndex].id;
+        this.selectItem(this.items[newIndex].id);
     },
 
     statusColor(status) {
@@ -319,198 +450,11 @@ const Review = {
         }[status] || status;
     },
 
-    async loadPdf(pdfPath) {
-        if (!pdfPath) return;
-
-        this.currentPdf = pdfPath;
-        this.currentPage = 0;
-        this.searchResults = [];  // Clear highlights when loading new PDF
-
-        // Clear search results display
-        document.getElementById('search-results').innerHTML = '';
-
-        await this.renderPdfPage();
-    },
-
-    async renderPdfPage() {
-        if (!this.currentPdf) return;
-
-        try {
-            // Get highlights for current page from search results
-            const highlights = this.searchResults
-                .filter(r => r.page === this.currentPage)
-                .map(r => r.rect);
-
-            const data = await App.api('/api/pdf/render', {
-                method: 'POST',
-                body: {
-                    pdf_path: this.currentPdf,
-                    page_num: this.currentPage,
-                    highlights: highlights
-                }
-            });
-
-            document.getElementById('pdf-placeholder').style.display = 'none';
-            const img = document.getElementById('pdf-image');
-            img.src = data.image;
-            img.style.display = 'block';
-
-            this.currentPage = data.page_num;
-            this.totalPages = data.total_pages;
-
-            // Show page info with highlight count
-            let pageInfo = `Page ${this.currentPage + 1} / ${this.totalPages}`;
-            if (highlights.length > 0) {
-                pageInfo += ` (${highlights.length} match${highlights.length > 1 ? 'es' : ''})`;
-            }
-            document.getElementById('pdf-page-info').textContent = pageInfo;
-
-        } catch (e) {
-            App.toast('Failed to render PDF: ' + e.message, 'error');
-        }
-    },
-
-    async searchPdf() {
-        const pdfPath = document.getElementById('pdf-select').value;
-        const term = document.getElementById('search-term').value;
-
-        if (!pdfPath) {
-            App.toast('Please select a PDF', 'warning');
-            return;
-        }
-
-        if (!term) {
-            App.toast('Please enter a search term', 'warning');
-            return;
-        }
-
-        try {
-            // Load PDF if not already
-            if (this.currentPdf !== pdfPath) {
-                this.searchResults = [];  // Clear previous search results
-                await this.loadPdf(pdfPath);
-            }
-
-            const data = await App.api('/api/pdf/search', {
-                method: 'POST',
-                body: { pdf_path: pdfPath, term }
-            });
-
-            const results = document.getElementById('search-results');
-            if (data.found) {
-                // Store results for highlighting
-                this.searchResults = data.results;
-
-                // Count pages with matches
-                const pageCount = new Set(data.results.map(r => r.page)).size;
-                results.innerHTML = `<span class="text-success"><i class="bi bi-check-circle"></i> Found ${data.results.length} matches on ${pageCount} page${pageCount > 1 ? 's' : ''}</span>`;
-
-                // Go to first result
-                if (data.first_page !== null) {
-                    this.currentPage = data.first_page;
-                    await this.renderPdfPage();
-                }
-            } else {
-                this.searchResults = [];
-                results.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle"></i> Not found</span>`;
-            }
-
-        } catch (e) {
-            App.toast('Search failed: ' + e.message, 'error');
-        }
-    },
-
-    async pdfNav(action) {
-        if (!this.currentPdf) return;
-
-        switch (action) {
-            case 'first': this.currentPage = 0; break;
-            case 'prev': this.currentPage = Math.max(0, this.currentPage - 1); break;
-            case 'next': this.currentPage = Math.min(this.totalPages - 1, this.currentPage + 1); break;
-            case 'last': this.currentPage = this.totalPages - 1; break;
-        }
-
-        await this.renderPdfPage();
-    },
-
-    async takeSnapshot() {
-        if (!this.currentItem || !this.currentPdf) {
-            App.toast('Please select an item and PDF', 'warning');
-            return;
-        }
-
-        try {
-            const data = await App.api('/api/pdf/snapshot', {
-                method: 'POST',
-                body: {
-                    item_id: this.currentItem.id,
-                    pdf_path: this.currentPdf,
-                    page_num: this.currentPage
-                }
-            });
-
-            App.toast('Snapshot saved', 'success');
-
-            // Show snapshot
-            document.getElementById('snapshot-card').style.display = 'block';
-            document.getElementById('snapshot-image').src = data.snapshot;
-
-        } catch (e) {
-            App.toast('Failed to take snapshot: ' + e.message, 'error');
-        }
-    },
-
-    async toggleApproval() {
-        if (!this.currentItem) return;
-
-        const approved = document.getElementById('approval-checkbox').checked;
-
-        try {
-            await App.api('/api/review/approve', {
-                method: 'POST',
-                body: {
-                    item_id: this.currentItem.id,
-                    approved
-                }
-            });
-
-            App.toast(approved ? 'Item approved' : 'Approval removed', 'success');
-            await this.loadItems();
-
-        } catch (e) {
-            App.toast('Failed to update approval: ' + e.message, 'error');
-            document.getElementById('approval-checkbox').checked = !approved;
-        }
-    },
-
-    async reprocess() {
-        if (!this.currentItem) return;
-
-        if (!confirm('Send this item back for AI processing?')) return;
-
-        try {
-            await App.api('/api/review/reprocess', {
-                method: 'POST',
-                body: { item_id: this.currentItem.id }
-            });
-
-            App.toast('Item sent back for processing', 'success');
-            this.currentItem = null;
-            await this.loadItems();
-
-        } catch (e) {
-            App.toast('Failed to reprocess: ' + e.message, 'error');
-        }
+    confidenceColor(confidence) {
+        return { 'high': 'success', 'medium': 'warning', 'low': 'danger' }[confidence?.toLowerCase()] || 'secondary';
     }
 };
 
 document.addEventListener('DOMContentLoaded', () => Review.init());
-
-// Handle PDF select change
-document.getElementById('pdf-select')?.addEventListener('change', (e) => {
-    if (e.target.value) {
-        Review.loadPdf(e.target.value);
-    }
-});
 </script>
 {% endblock %}

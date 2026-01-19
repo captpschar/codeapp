@@ -99,6 +99,12 @@ def review():
     return render_template('review.html')
 
 
+@app.route('/pdf-viewer')
+def pdf_viewer():
+    """Pop-out PDF viewer page."""
+    return render_template('pdf_viewer.html')
+
+
 @app.route('/export')
 def export():
     """Export page - export to Google Docs."""
@@ -713,6 +719,7 @@ def get_review_item(item_id):
         'filename': Path(item.photo_original_path).name if item.photo_original_path else 'Unknown',
         'location': item.user_location,
         'description': item.user_description,
+        'analysis': item.user_analysis,
         'status': item.status.value,
         'image': image_b64,
         'snapshot': snapshot_b64,
@@ -768,6 +775,33 @@ def reprocess_item():
     item.ai_violation_description = ''
     item.ai_confidence = None
     item.ai_match_type = None
+    state.queue.update_item(item)
+
+    return jsonify({'success': True})
+
+
+@app.route('/api/review/update', methods=['POST'])
+def update_review_item():
+    """Update item details during review."""
+    data = request.json
+    item_id = data.get('item_id')
+
+    state = get_app_state()
+    item = state.queue.get_item_by_id(item_id)
+
+    if not item:
+        return jsonify({'error': 'Item not found'}), 404
+
+    # Update editable fields
+    if 'location' in data:
+        item.user_location = data['location']
+    if 'description' in data:
+        item.user_description = data['description']
+    if 'analysis' in data:
+        item.user_analysis = data['analysis']
+    if 'code_reference' in data:
+        item.ai_code_reference = data['code_reference']
+
     state.queue.update_item(item)
 
     return jsonify({'success': True})

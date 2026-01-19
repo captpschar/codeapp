@@ -57,6 +57,7 @@ class InspectionItem:
     # User Inputs (Phase 1)
     user_description: str = ""
     user_location: str = ""
+    user_analysis: str = ""  # Reviewer's analysis notes
     selected_code_version: str = ""
     selected_code_folder: str = ""  # Name of the code folder (legacy single)
     selected_chapter_file: str = ""  # Legacy single chapter
@@ -103,6 +104,7 @@ class InspectionItem:
             "snapshot_path": self.snapshot_path,
             "user_description": self.user_description,
             "user_location": self.user_location,
+            "user_analysis": self.user_analysis,
             "selected_code_version": self.selected_code_version,
             "selected_code_folder": self.selected_code_folder,
             "selected_chapter_file": self.selected_chapter_file,
@@ -141,6 +143,7 @@ class InspectionItem:
         item.snapshot_path = data.get("snapshot_path")
         item.user_description = data.get("user_description", "")
         item.user_location = data.get("user_location", "")
+        item.user_analysis = data.get("user_analysis", "")
         item.selected_code_version = data.get("selected_code_version", "")
         item.selected_code_folder = data.get("selected_code_folder", "")
         item.selected_chapter_file = data.get("selected_chapter_file", "")

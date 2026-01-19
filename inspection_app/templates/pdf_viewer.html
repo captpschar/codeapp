@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Viewer - Inspection Photo Review</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        body { background: #1a1a2e; color: #eee; }
+        .pdf-container {
+            height: calc(100vh - 120px);
+            overflow: auto;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 1rem;
+        }
+        .pdf-container img {
+            max-width: 100%;
+            height: auto;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        }
+        .toolbar {
+            background: #16213e;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid #0f3460;
+        }
+        .search-highlight { background: yellow; }
+    </style>
+</head>
+<body>
+    <!-- Toolbar -->
+    <div class="toolbar d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div class="d-flex align-items-center gap-2">
+            <select class="form-select form-select-sm" id="pdf-select" style="width: 250px;">
+                <option value="">Select PDF...</option>
+            </select>
+        </div>
+
+        <div class="d-flex align-items-center gap-2">
+            <input type="text" class="form-control form-control-sm" id="search-term" placeholder="Search..." style="width: 200px;">
+            <button class="btn btn-primary btn-sm" onclick="PdfViewer.search()">
+                <i class="bi bi-search"></i>
+            </button>
+            <span id="search-results" class="small text-muted"></span>
+        </div>
+
+        <div class="btn-group btn-group-sm">
+            <button class="btn btn-outline-light" onclick="PdfViewer.nav('first')" title="First"><i class="bi bi-skip-backward"></i></button>
+            <button class="btn btn-outline-light" onclick="PdfViewer.nav('prev')" title="Previous"><i class="bi bi-chevron-left"></i></button>
+            <span class="btn btn-outline-light disabled" id="page-info">- / -</span>
+            <button class="btn btn-outline-light" onclick="PdfViewer.nav('next')" title="Next"><i class="bi bi-chevron-right"></i></button>
+            <button class="btn btn-outline-light" onclick="PdfViewer.nav('last')" title="Last"><i class="bi bi-skip-forward"></i></button>
+        </div>
+
+        <div class="d-flex align-items-center gap-2">
+            <button class="btn btn-success btn-sm" onclick="PdfViewer.snapshot()" id="snapshot-btn" disabled>
+                <i class="bi bi-camera me-1"></i>Snapshot
+            </button>
+        </div>
+    </div>
+
+    <!-- PDF Display -->
+    <div class="pdf-container" id="pdf-container">
+        <div class="text-center text-muted py-5">
+            <i class="bi bi-file-pdf" style="font-size: 4rem;"></i>
+            <p class="mt-3">Select a PDF to view</p>
+        </div>
+    </div>
+
+    <script>
+    const PdfViewer = {
+        currentPdf: null,
+        currentPage: 0,
+        totalPages: 0,
+        searchResults: [],
+        itemId: null,
+
+        async init() {
+            // Get item ID from URL params
+            const params = new URLSearchParams(window.location.search);
+            this.itemId = params.get('item');
+            const pdfPath = params.get('pdf');
+            const searchTerm = params.get('search');
+
+            await this.loadPdfList();
+
+            if (pdfPath) {
+                document.getElementById('pdf-select').value = pdfPath;
+                await this.loadPdf(pdfPath);
+
+                if (searchTerm) {
+                    document.getElementById('search-term').value = searchTerm;
+                    await this.search();
+                }
+            }
+
+            // Enable snapshot if we have an item
+            if (this.itemId) {
+                document.getElementById('snapshot-btn').disabled = false;
+            }
+        },
+
+        async api(url, options = {}) {
+            const config = { headers: { 'Content-Type': 'application/json' } };
+            if (options.method) config.method = options.method;
+            if (options.body) config.body = JSON.stringify(options.body);
+            const res = await fetch(url, config);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Request failed');
+            return data;
+        },
+
+        async loadPdfList() {
+            try {
+                const data = await this.api('/api/pdf/list');
+                const select = document.getElementById('pdf-select');
+
+                const groups = {};
+                data.pdfs.forEach(pdf => {
+                    if (!groups[pdf.folder]) groups[pdf.folder] = [];
+                    groups[pdf.folder].push(pdf);
+                });
+
+                let html = '<option value="">Select PDF...</option>';
+                for (const [folder, pdfs] of Object.entries(groups)) {
+                    html += `<optgroup label="${folder}">`;
+                    pdfs.forEach(pdf => {
+                        html += `<option value="${pdf.path}">${pdf.name}</option>`;
+                    });
+                    html += '</optgroup>';
+                }
+                select.innerHTML = html;
+            } catch (e) {
+                console.error('Failed to load PDFs:', e);
+            }
+        },
+
+        async loadPdf(pdfPath) {
+            if (!pdfPath) return;
+            this.currentPdf = pdfPath;
+            this.currentPage = 0;
+            this.searchResults = [];
+            document.getElementById('search-results').textContent = '';
+            await this.render();
+        },
+
+        async render() {
+            if (!this.currentPdf) return;
+
+            try {
+                const highlights = this.searchResults
+                    .filter(r => r.page === this.currentPage)
+                    .map(r => r.rect);
+
+                const data = await this.api('/api/pdf/render', {
+                    method: 'POST',
+                    body: {
+                        pdf_path: this.currentPdf,
+                        page_num: this.currentPage,
+                        highlights: highlights
+                    }
+                });
+
+                document.getElementById('pdf-container').innerHTML = `<img src="${data.image}" alt="PDF Page">`;
+                this.currentPage = data.page_num;
+                this.totalPages = data.total_pages;
+
+                let pageInfo = `${this.currentPage + 1} / ${this.totalPages}`;
+                if (highlights.length > 0) pageInfo += ` (${highlights.length} matches)`;
+                document.getElementById('page-info').textContent = pageInfo;
+
+            } catch (e) {
+                document.getElementById('pdf-container').innerHTML = `<div class="text-danger">Error: ${e.message}</div>`;
+            }
+        },
+
+        async search() {
+            const term = document.getElementById('search-term').value;
+            if (!this.currentPdf || !term) return;
+
+            try {
+                const data = await this.api('/api/pdf/search', {
+                    method: 'POST',
+                    body: { pdf_path: this.currentPdf, term }
+                });
+
+                if (data.found) {
+                    this.searchResults = data.results;
+                    const pageCount = new Set(data.results.map(r => r.page)).size;
+                    document.getElementById('search-results').innerHTML =
+                        `<span class="text-success">${data.results.length} matches on ${pageCount} pages</span>`;
+
+                    if (data.first_page !== null) {
+                        this.currentPage = data.first_page;
+                        await this.render();
+                    }
+                } else {
+                    this.searchResults = [];
+                    document.getElementById('search-results').innerHTML = '<span class="text-warning">Not found</span>';
+                }
+            } catch (e) {
+                document.getElementById('search-results').innerHTML = `<span class="text-danger">Error</span>`;
+            }
+        },
+
+        async nav(action) {
+            if (!this.currentPdf) return;
+            switch (action) {
+                case 'first': this.currentPage = 0; break;
+                case 'prev': this.currentPage = Math.max(0, this.currentPage - 1); break;
+                case 'next': this.currentPage = Math.min(this.totalPages - 1, this.currentPage + 1); break;
+                case 'last': this.currentPage = this.totalPages - 1; break;
+            }
+            await this.render();
+        },
+
+        async snapshot() {
+            if (!this.itemId || !this.currentPdf) {
+                alert('No item selected for snapshot');
+                return;
+            }
+
+            try {
+                const data = await this.api('/api/pdf/snapshot', {
+                    method: 'POST',
+                    body: {
+                        item_id: this.itemId,
+                        pdf_path: this.currentPdf,
+                        page_num: this.currentPage
+                    }
+                });
+
+                alert('Snapshot saved!');
+
+                // Notify parent window
+                if (window.opener && window.opener.Review) {
+                    window.opener.Review.onSnapshotTaken(data.snapshot);
+                }
+            } catch (e) {
+                alert('Failed: ' + e.message);
+            }
+        }
+    };
+
+    document.addEventListener('DOMContentLoaded', () => PdfViewer.init());
+
+    document.getElementById('pdf-select').addEventListener('change', (e) => {
+        if (e.target.value) PdfViewer.loadPdf(e.target.value);
+    });
+
+    document.getElementById('search-term').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') PdfViewer.search();
+    });
+    </script>
+</body>
+</html>
