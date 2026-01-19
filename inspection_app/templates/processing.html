@@ -122,14 +122,21 @@
 const Processing = {
     pollInterval: null,
     wasRunning: false,  // Track previous state to detect completion
+    isPollingFast: false,
 
     async init() {
         await this.refresh();
-        this.startPolling();
+        // Start with slow polling (or no polling) when idle
+        // Only poll fast when processing is active
     },
 
-    startPolling() {
-        this.pollInterval = setInterval(() => this.updateStatus(), 2000);
+    startPolling(fast = false) {
+        this.stopPolling();
+        this.isPollingFast = fast;
+        // Poll every 2s when processing, stop when idle (user can manually refresh)
+        if (fast) {
+            this.pollInterval = setInterval(() => this.updateStatus(), 2000);
+        }
     },
 
     stopPolling() {
@@ -137,6 +144,7 @@ const Processing = {
             clearInterval(this.pollInterval);
             this.pollInterval = null;
         }
+        this.isPollingFast = false;
     },
 
     async refresh() {
@@ -166,7 +174,15 @@ const Processing = {
                     App.toast('Processing complete! Items ready for review.', 'success');
                 }
                 App.updateQueueCount();
+                // Stop fast polling now that we're done
+                this.stopPolling();
             }
+
+            // Start fast polling if processing is running
+            if (data.running && !this.isPollingFast) {
+                this.startPolling(true);
+            }
+
             this.wasRunning = data.running;
 
             // Update progress
@@ -261,6 +277,7 @@ const Processing = {
             await App.api('/api/processing/start', { method: 'POST' });
             App.toast('Processing started', 'success');
             this.wasRunning = true;  // Mark as running
+            this.startPolling(true);  // Start fast polling
             this.refresh();
         } catch (e) {
             App.toast('Failed to start: ' + e.message, 'error');
